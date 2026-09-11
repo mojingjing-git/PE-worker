@@ -25,9 +25,9 @@ const (
 	idKeyCancel = 1204
 	idKeyBaseURL = 1210
 	idKeyModel   = 1211
-	idKeyRadioOpenAI    = 1221
-	idKeyRadioAnthropic = 1222
-	idKeyRadioDeepSeek  = 1223
+	// 协议预设 radio（用户可手填 base/model 覆盖）
+	idKeyRadioOpenAI    = 1221 // OpenAI Chat Completions 协议：POST {base}/chat/completions, Bearer auth
+	idKeyRadioAnthropic = 1222 // Anthropic Messages 协议：POST {base}/v1/messages, x-api-key auth
 )
 
 // providerDefaultBase 返回 provider 默认的 base URL（用户可改）。
@@ -35,8 +35,6 @@ func providerDefaultBase(p string) string {
 	switch p {
 	case "anthropic":
 		return "https://api.anthropic.com"
-	case "deepseek":
-		return "https://api.deepseek.com/v1"
 	default:
 		return "https://api.openai.com/v1"
 	}
@@ -47,8 +45,6 @@ func providerDefaultModel(p string) string {
 	switch p {
 	case "anthropic":
 		return "claude-3-5-sonnet-20241022"
-	case "deepseek":
-		return "deepseek-chat"
 	default:
 		return "gpt-4"
 	}
@@ -75,7 +71,7 @@ var (
 	keyDialogResultKey   string
 	keyDialogResultSave  bool
 	keyDialogResultOK    bool
-	keyDialogResultProvider string // "openai" / "anthropic" / "deepseek"
+	keyDialogResultProvider string // "openai" / "anthropic"
 	keyDialogResultBaseURL  string
 	keyDialogResultModel    string
 
@@ -179,7 +175,7 @@ func keyDialogWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			keyDialogResultOK = false
 			pDestroyWindow.Call(hwnd)
 			return 0
-		case idKeyRadioOpenAI, idKeyRadioAnthropic, idKeyRadioDeepSeek:
+		case idKeyRadioOpenAI, idKeyRadioAnthropic:
 			// radio 切换 → 自动填 base URL + model
 			var prov string
 			switch ctrlID {
@@ -187,8 +183,6 @@ func keyDialogWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 				prov = "openai"
 			case idKeyRadioAnthropic:
 				prov = "anthropic"
-			case idKeyRadioDeepSeek:
-				prov = "deepseek"
 			}
 			if keyDialogBaseURLHwnd != 0 {
 				fillBuf, _ := syscall.UTF16FromString(providerDefaultBase(prov))
@@ -286,12 +280,6 @@ func keyDialogCollectResult(hwnd uintptr) {
 		antChecked, _, _ := pSendMessageW.Call(antHwnd, BM_GETCHECK, 0, 0)
 		if antChecked == BST_CHECKED {
 			keyDialogResultProvider = "anthropic"
-		} else {
-			dsHwnd, _, _ := pGetDlgItem.Call(hwnd, idKeyRadioDeepSeek)
-			dsChecked, _, _ := pSendMessageW.Call(dsHwnd, BM_GETCHECK, 0, 0)
-			if dsChecked == BST_CHECKED {
-				keyDialogResultProvider = "deepseek"
-			}
 		}
 	}
 
@@ -300,18 +288,18 @@ func keyDialogCollectResult(hwnd uintptr) {
 
 // onKeyDialogCreate 建控件。
 // 布局 (520x250):
-//   y=10:  label "LLM Provider:" + 3 radio (一行)
-//   y=44:  label "Base URL:" + edit
-//   y=72:  label "Model:" + edit
-//   y=100: hint "OpenAI/DeepSeek 用 Chat Completions; Anthropic 用 Messages"
+//   y=10:  label "协议预设:" + 2 radio (一行: OpenAI 格式 / Anthropic 格式)
+//   y=44:  label "Base URL:" + edit  (用户可手填覆盖)
+//   y=72:  label "Model:" + edit    (用户可手填覆盖)
+//   y=100: hint "OpenAI 格式: POST {base}/chat/completions, Bearer auth;  Anthropic 格式: POST {base}/v1/messages, x-api-key auth"
 //   y=122: label "API Key:" + password edit
 //   y=158: checkbox "保存到磁盘"
 //   y=200: OK / Cancel buttons
 func onKeyDialogCreate(hwnd uintptr) {
 	hInst, _, _ := pGetModuleHandleW.Call(0)
 
-	// 1) Provider label
-	lblProv, _ := Ptr("LLM Provider:")
+	// 1) 协议预设 label
+	lblProv, _ := Ptr("协议预设:")
 	defer Hold(lblProv)
 	pCreateWindowExW.Call(
 		0,
@@ -322,7 +310,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		hwnd, 0, hInst, 0,
 	)
 
-	// 1a) 3 radios
+	// 1a) 2 radios（OpenAI 格式 / Anthropic 格式）
 	mkRadio := func(text string, id int, x, y, w, h uintptr, checked bool) uintptr {
 		s, _ := Ptr(text)
 		defer Hold(s)
@@ -343,9 +331,8 @@ func onKeyDialogCreate(hwnd uintptr) {
 		}
 		return hCtrl
 	}
-	mkRadio("OpenAI", idKeyRadioOpenAI, 110, 12, 80, 22, true)
-	mkRadio("Anthropic", idKeyRadioAnthropic, 200, 12, 90, 22, false)
-	mkRadio("DeepSeek", idKeyRadioDeepSeek, 300, 12, 90, 22, false)
+	mkRadio("OpenAI 格式", idKeyRadioOpenAI, 110, 12, 110, 22, true)
+	mkRadio("Anthropic 格式", idKeyRadioAnthropic, 230, 12, 130, 22, false)
 
 	// 2) Base URL label
 	lblURL, _ := Ptr("Base URL:")
@@ -398,7 +385,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 	keyDialogModelHwnd = modelHwnd
 
 	// 2d) 小字提示
-	hint1, _ := Ptr("(OpenAI / DeepSeek: Chat Completions, URL 带 /v1;  Anthropic: Messages, URL 不带 /v1/messages)")
+	hint1, _ := Ptr("OpenAI 格式: POST {base}/chat/completions (Bearer auth)    Anthropic 格式: POST {base}/v1/messages (x-api-key auth)")
 	defer Hold(hint1)
 	pCreateWindowExW.Call(
 		0,
@@ -478,13 +465,13 @@ func onKeyDialogCreate(hwnd uintptr) {
 //
 // 参数：
 //   - existingKey:   预填到密码框（如果 cfg 已经有 key，方便用户编辑）
-//   - existingProv:  预选 provider radio（"openai" / "anthropic" / "deepseek"）
+//   - existingProv:  预选协议预设 radio（"openai" / "anthropic"）
 //   - existingURL:   预填 base URL
 //   - existingModel: 预填 model 名
 //
 // 返回：
 //   - key:      用户输入的 key
-//   - provider: 选择的 provider（"openai" / "anthropic" / "deepseek"）
+//   - provider: 选择的协议预设（"openai" / "anthropic"）
 //   - baseURL:  用户输入或自动填的 base URL
 //   - model:    用户输入或自动填的 model 名
 //   - save:     是否要保存到磁盘（调用方负责落盘）
@@ -548,16 +535,15 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 	}
 
 	// 预选 provider radio（先 radio 后填 URL/model — radio change 会自动写）
+	// 老 ini 的 "deepseek" 映射到 "openai"（同协议，只是 base URL 不同）
 	preProv := existingProv
-	if preProv == "" {
+	if preProv == "" || preProv == "deepseek" {
 		preProv = "openai"
 	}
 	var provID int
 	switch preProv {
 	case "anthropic":
 		provID = idKeyRadioAnthropic
-	case "deepseek":
-		provID = idKeyRadioDeepSeek
 	default:
 		provID = idKeyRadioOpenAI
 	}
