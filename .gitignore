@@ -1,0 +1,36 @@
+# ---- Mavis runtime data（不提交，是 Mavis 自己的状态） ----
+.workbuddy/
+.tmp/
+
+# ---- Build artifacts（除 dist/）----
+*.exe
+*.obj
+*.lib
+*.exp
+*.pdb
+*.test
+*.out
+
+# ---- Build output dirs except dist/（dist/ 里有要拷 U 盘的 spike 产物）----
+bin/
+obj/
+
+# ---- dist/ 里的 spike 产物要保留（docs/08 让用户直接拷 U 盘） ----
+!dist/
+!dist/spike386/*.exe
+!dist/spike64/*.exe
+
+# ---- PE 探针运行时写的测试文件 ----
+*.pe_spike_*.txt
+dist/spike386/pe_spike_*.txt
+dist/spike64/pe_spike_*.txt
+
+# ---- OS / editor temp ----
+Thumbs.db
+.DS_Store
+*~
+*.swp
+*.swo
+.vs/
+.idea/
+*.user
