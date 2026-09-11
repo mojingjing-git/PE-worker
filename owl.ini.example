@@ -1,0 +1,73 @@
+; ============================================================
+; owl - PE agent configuration (example)
+; ============================================================
+;
+; Copy this to owl.ini (same dir as owl.exe) and edit.
+; UTF-8 without BOM, no leading whitespace in section/key.
+;
+; Field reference (PLAN sec 0.6 B6 + verified by build.cmd):
+;
+; [llm]         LLM provider
+;   base        full chat/completions URL (e.g. https://api.openai.com/v1)
+;               For Anthropic use https://api.anthropic.com (auto-append /v1/messages)
+;   model       model name (e.g. gpt-4 / claude-3-5-sonnet-20241022 / deepseek-chat)
+;   provider    openai | anthropic | deepseek   (default: openai)
+;   keyfile     path to API key file (relative to owl.exe dir, default: owl.key)
+;   key         API key literal (NOT recommended, visible in tasklist)
+;   vision      1 = enable screenshot tool (Phase 4)
+;   timeout     HTTP timeout seconds (default: 120)
+;
+; [agent]       agent loop behavior
+;   confirm     1 = dangerous ops need user confirmation (default: 1)
+;   whitelist   comma-separated first-tokens that exec/run_script will allow
+;               without warning (soft barrier, not a sandbox)
+;   maxturns    max tool-call loop rounds before giving up (default: 10)
+;   imghistory  how many recent rounds keep images (Phase 4, default: 2)
+;
+; [ui]          UI customization
+;   font        font name (default: system default)
+;   fontsize    font size (default: 12)
+;
+; ============================================================
+
+[llm]
+; 1) OpenAI
+base = https://api.openai.com/v1
+model = gpt-4
+provider = openai
+keyfile = owl.key
+; key = sk-...   ; uncomment ONLY if you must; keyfile is preferred
+timeout = 120
+
+; 2) Anthropic (uncomment to switch)
+; base = https://api.anthropic.com
+; model = claude-3-5-sonnet-20241022
+; provider = anthropic
+; keyfile = owl.key
+
+; 3) DeepSeek (uncomment to switch)
+; base = https://api.deepseek.com/v1
+; model = deepseek-chat
+; provider = deepseek
+; keyfile = owl.key
+
+; vision = 0
+; timeout = 120
+
+[agent]
+confirm = 1
+whitelist = ver, dir, cd, ping, ipconfig, tasklist, whoami, systeminfo
+maxturns = 10
+imghistory = 2
+
+[ui]
+font =
+fontsize = 12
+
+; ============================================================
+; Key file (owl.key) format:
+;   - one line, no trailing newline required
+;   - file mode 0600 if your filesystem supports it
+;   - DO NOT put key in owl.ini unless you have to (visible to
+;     `tasklist /v` if someone runs the agent with --key)
+; ============================================================

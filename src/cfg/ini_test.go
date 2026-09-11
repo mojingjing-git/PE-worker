@@ -6,6 +6,66 @@ import (
 	"testing"
 )
 
+func TestProvider_Anthropic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.ini")
+	os.WriteFile(path, []byte(`[llm]
+base = https://api.anthropic.com
+model = claude-3-5-sonnet-20241022
+provider = anthropic
+key = sk-ant-test
+`), 0644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LLM.Provider != "anthropic" {
+		t.Errorf("Provider = %q, want anthropic", c.LLM.Provider)
+	}
+	if c.LLM.Base != "https://api.anthropic.com" {
+		t.Errorf("Base = %q", c.LLM.Base)
+	}
+}
+
+func TestProvider_DeepSeek(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.ini")
+	os.WriteFile(path, []byte(`[llm]
+base = https://api.deepseek.com/v1
+model = deepseek-chat
+provider = deepseek
+`), 0644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.LLM.Provider != "deepseek" {
+		t.Errorf("Provider = %q", c.LLM.Provider)
+	}
+}
+
+func TestDefault_HasAllFields(t *testing.T) {
+	c := Default()
+	if c.LLM.KeyFile != "owl.key" {
+		t.Errorf("KeyFile default = %q", c.LLM.KeyFile)
+	}
+	if c.LLM.Timeout != 120 {
+		t.Errorf("Timeout default = %d, want 120", c.LLM.Timeout)
+	}
+	if !c.Agent.Confirm {
+		t.Error("Confirm default should be true")
+	}
+	if c.Agent.MaxTurns != 10 {
+		t.Errorf("MaxTurns default = %d, want 10", c.Agent.MaxTurns)
+	}
+	if c.Agent.ImgHistory != 2 {
+		t.Errorf("ImgHistory default = %d, want 2", c.Agent.ImgHistory)
+	}
+	if c.UI.FontSize != 12 {
+		t.Errorf("FontSize default = %d, want 12", c.UI.FontSize)
+	}
+}
+
 func TestLoad_Sample(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.ini")
