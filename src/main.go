@@ -90,10 +90,11 @@ func boot() int {
 	// 用户勾选"保存" → 写 smith.ini（base/model/provider）+ smith.key
 	// 用户不勾选 → 全部仅在内存里，进程退出就丢（U 盘发给别人用就这模式）
 	if !*noGUI && cfgInstance.LLM.Key == "" && *keyFlag == "" {
-		key, prov, baseURL, save, ok, err := win.PromptAPIKey(
+		key, prov, baseURL, model, save, ok, err := win.PromptAPIKey(
 			cfgInstance.LLM.Key,
 			cfgInstance.LLM.Provider,
 			cfgInstance.LLM.Base,
+			cfgInstance.LLM.Model,
 		)
 		if err != nil {
 			_ = logx.Error("!! key dialog: %v", err)
@@ -115,16 +116,8 @@ func boot() int {
 		if baseURL != "" {
 			cfgInstance.LLM.Base = baseURL
 		}
-		// OpenAI / DeepSeek 需要 Model；prompt 给默认
-		if cfgInstance.LLM.Model == "" {
-			switch prov {
-			case "anthropic":
-				cfgInstance.LLM.Model = "claude-3-5-sonnet-20241022"
-			case "deepseek":
-				cfgInstance.LLM.Model = "deepseek-chat"
-			default:
-				cfgInstance.LLM.Model = "gpt-4"
-			}
+		if model != "" {
+			cfgInstance.LLM.Model = model
 		}
 		if save {
 			keyPath := filepath.Join(exeDir, "smith.key")
@@ -139,8 +132,8 @@ func boot() int {
 				_ = logx.Error("!! save %s: %v", iniPath, err)
 				return 1
 			}
-			_ = logx.Info("** ver ini updated %s (provider=%s, base=%s)",
-				iniPath, cfgInstance.LLM.Provider, cfgInstance.LLM.Base)
+			_ = logx.Info("** ver ini updated %s (provider=%s, model=%s, base=%s)",
+				iniPath, cfgInstance.LLM.Provider, cfgInstance.LLM.Model, cfgInstance.LLM.Base)
 		} else {
 			_ = logx.Info("** ver LLM config 仅当次有效（不落盘）")
 		}

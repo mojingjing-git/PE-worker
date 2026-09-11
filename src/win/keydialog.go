@@ -24,6 +24,7 @@ const (
 	idKeyOKBtn  = 1203
 	idKeyCancel = 1204
 	idKeyBaseURL = 1210
+	idKeyModel   = 1211
 	idKeyRadioOpenAI    = 1221
 	idKeyRadioAnthropic = 1222
 	idKeyRadioDeepSeek  = 1223
@@ -38,6 +39,18 @@ func providerDefaultBase(p string) string {
 		return "https://api.deepseek.com/v1"
 	default:
 		return "https://api.openai.com/v1"
+	}
+}
+
+// providerDefaultModel 返回 provider 默认的 model（用户可改）。
+func providerDefaultModel(p string) string {
+	switch p {
+	case "anthropic":
+		return "claude-3-5-sonnet-20241022"
+	case "deepseek":
+		return "deepseek-chat"
+	default:
+		return "gpt-4"
 	}
 }
 
@@ -64,10 +77,12 @@ var (
 	keyDialogResultOK    bool
 	keyDialogResultProvider string // "openai" / "anthropic" / "deepseek"
 	keyDialogResultBaseURL  string
+	keyDialogResultModel    string
 
-	// radio 切换 → 改 base URL 用
+	// radio 切换 → 改 base URL / model 用
 	keyDialogHwnd        uintptr
 	keyDialogBaseURLHwnd uintptr
+	keyDialogModelHwnd    uintptr
 )
 
 // 标准 Win32 控件 class 名（lazy alloc 一次）
@@ -165,7 +180,7 @@ func keyDialogWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			pDestroyWindow.Call(hwnd)
 			return 0
 		case idKeyRadioOpenAI, idKeyRadioAnthropic, idKeyRadioDeepSeek:
-			// radio 切换 → 自动填 base URL
+			// radio 切换 → 自动填 base URL + model
 			var prov string
 			switch ctrlID {
 			case idKeyRadioOpenAI:
@@ -179,6 +194,12 @@ func keyDialogWndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 				fillBuf, _ := syscall.UTF16FromString(providerDefaultBase(prov))
 				if len(fillBuf) > 0 {
 					pSendMessageW.Call(keyDialogBaseURLHwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&fillBuf[0])))
+				}
+			}
+			if keyDialogModelHwnd != 0 {
+				fillBuf, _ := syscall.UTF16FromString(providerDefaultModel(prov))
+				if len(fillBuf) > 0 {
+					pSendMessageW.Call(keyDialogModelHwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&fillBuf[0])))
 				}
 			}
 			return 0
@@ -240,6 +261,20 @@ func keyDialogCollectResult(hwnd uintptr) {
 	}
 	keyDialogResultBaseURL = string(utf16ToRunes(bufBase[:lengthBase]))
 
+	// Model
+	bufModel := make([]uint16, bufSize)
+	modelHwnd, _, _ := pGetDlgItem.Call(hwnd, idKeyModel)
+	pSendMessageW.Call(modelHwnd, WM_GETTEXT, bufSize, uintptr(unsafe.Pointer(&bufModel[0])))
+	lengthModel := 0
+	for i, c := range bufModel {
+		if c == 0 {
+			lengthModel = i
+			break
+		}
+		lengthModel = i + 1
+	}
+	keyDialogResultModel = string(utf16ToRunes(bufModel[:lengthModel]))
+
 	// Provider (看哪个 radio 选中)
 	keyDialogResultProvider = "openai" // 默认
 	openAIHwnd, _, _ := pGetDlgItem.Call(hwnd, idKeyRadioOpenAI)
@@ -264,14 +299,14 @@ func keyDialogCollectResult(hwnd uintptr) {
 }
 
 // onKeyDialogCreate 建控件。
-// 布局 (520x320):
+// 布局 (520x250):
 //   y=10:  label "LLM Provider:" + 3 radio (一行)
-//   y=46:  label "Base URL:" + edit
-//   y=78:  hint "OpenAI/DeepSeek 用 Chat Completions; Anthropic 用 Messages"
-//   y=110: label "API Key:" + password edit
-//   y=152: checkbox "保存到磁盘"
-//   y=190: hint "U 盘发给别人请取消勾选"
-//   y=222: OK / Cancel buttons
+//   y=44:  label "Base URL:" + edit
+//   y=72:  label "Model:" + edit
+//   y=100: hint "OpenAI/DeepSeek 用 Chat Completions; Anthropic 用 Messages"
+//   y=122: label "API Key:" + password edit
+//   y=158: checkbox "保存到磁盘"
+//   y=200: OK / Cancel buttons
 func onKeyDialogCreate(hwnd uintptr) {
 	hInst, _, _ := pGetModuleHandleW.Call(0)
 
@@ -320,7 +355,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(stringClass)),
 		uintptr(unsafe.Pointer(lblURL)),
 		WS_CHILD|WS_VISIBLE|SS_LEFT,
-		12, 48, 90, 18,
+		12, 46, 90, 18,
 		hwnd, 0, hInst, 0,
 	)
 
@@ -332,12 +367,37 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(editClass)),
 		uintptr(unsafe.Pointer(urlTxt)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
-		110, 46, 396, 24,
+		110, 44, 396, 24,
 		hwnd, uintptr(idKeyBaseURL), hInst, 0,
 	)
 	keyDialogBaseURLHwnd = urlHwnd
 
-	// 2b) 小字提示
+	// 2b) Model label
+	lblModel, _ := Ptr("Model:")
+	defer Hold(lblModel)
+	pCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(stringClass)),
+		uintptr(unsafe.Pointer(lblModel)),
+		WS_CHILD|WS_VISIBLE|SS_LEFT,
+		12, 74, 90, 18,
+		hwnd, 0, hInst, 0,
+	)
+
+	// 2c) Model edit
+	modelTxt, _ := Ptr(providerDefaultModel("openai"))
+	defer Hold(modelTxt)
+	modelHwnd, _, _ := pCreateWindowExW.Call(
+		WS_EX_CLIENTEDGE,
+		uintptr(unsafe.Pointer(editClass)),
+		uintptr(unsafe.Pointer(modelTxt)),
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_AUTOHSCROLL,
+		110, 72, 396, 24,
+		hwnd, uintptr(idKeyModel), hInst, 0,
+	)
+	keyDialogModelHwnd = modelHwnd
+
+	// 2d) 小字提示
 	hint1, _ := Ptr("(OpenAI / DeepSeek: Chat Completions, URL 带 /v1;  Anthropic: Messages, URL 不带 /v1/messages)")
 	defer Hold(hint1)
 	pCreateWindowExW.Call(
@@ -345,7 +405,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(stringClass)),
 		uintptr(unsafe.Pointer(hint1)),
 		WS_CHILD|WS_VISIBLE|SS_LEFT,
-		12, 72, 496, 18,
+		12, 100, 496, 18,
 		hwnd, 0, hInst, 0,
 	)
 
@@ -357,7 +417,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(stringClass)),
 		uintptr(unsafe.Pointer(lblKey)),
 		WS_CHILD|WS_VISIBLE|SS_LEFT,
-		12, 100, 90, 18,
+		12, 126, 90, 18,
 		hwnd, 0, hInst, 0,
 	)
 
@@ -369,7 +429,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(editClass)),
 		uintptr(unsafe.Pointer(editTxt)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|ES_PASSWORD|ES_AUTOHSCROLL,
-		110, 98, 396, 26,
+		110, 124, 396, 26,
 		hwnd, uintptr(idKeyEdit), hInst, 0,
 	)
 
@@ -381,7 +441,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(buttonClass)),
 		uintptr(unsafe.Pointer(cbTxt)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,
-		12, 140, 496, 22,
+		12, 164, 496, 22,
 		hwnd, uintptr(idKeySave), hInst, 0,
 	)
 
@@ -393,7 +453,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(buttonClass)),
 		uintptr(unsafe.Pointer(okTxt)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON,
-		288, 175, 96, 30,
+		288, 200, 96, 30,
 		hwnd, uintptr(idKeyOKBtn), hInst, 0,
 	)
 
@@ -405,7 +465,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 		uintptr(unsafe.Pointer(buttonClass)),
 		uintptr(unsafe.Pointer(cnTxt)),
 		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-		394, 175, 96, 30,
+		394, 200, 96, 30,
 		hwnd, uintptr(idKeyCancel), hInst, 0,
 	)
 
@@ -417,35 +477,39 @@ func onKeyDialogCreate(hwnd uintptr) {
 // PromptAPIKey 弹首次运行 key 输入对话框，阻塞到用户 OK / Cancel。
 //
 // 参数：
-//   - existingKey:  预填到密码框（如果 cfg 已经有 key，方便用户编辑）
-//   - existingProv: 预选 provider radio（"openai" / "anthropic" / "deepseek"）
-//   - existingURL:  预填 base URL
+//   - existingKey:   预填到密码框（如果 cfg 已经有 key，方便用户编辑）
+//   - existingProv:  预选 provider radio（"openai" / "anthropic" / "deepseek"）
+//   - existingURL:   预填 base URL
+//   - existingModel: 预填 model 名
 //
 // 返回：
 //   - key:      用户输入的 key
 //   - provider: 选择的 provider（"openai" / "anthropic" / "deepseek"）
 //   - baseURL:  用户输入或自动填的 base URL
+//   - model:    用户输入或自动填的 model 名
 //   - save:     是否要保存到磁盘（调用方负责落盘）
 //   - ok:       true = 用户按 OK，false = 用户按 Cancel/Esc/关窗
 //   - err:      致命错误
-func PromptAPIKey(existingKey, existingProv, existingURL string) (key, provider, baseURL string, save bool, ok bool, err error) {
+func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) (key, provider, baseURL, model string, save bool, ok bool, err error) {
 	if err := RegisterKeyDialogClass(); err != nil {
-		return "", "", "", false, false, err
+		return "", "", "", "", false, false, err
 	}
 	keyDialogResultKey = ""
 	keyDialogResultSave = false
 	keyDialogResultOK = false
 	keyDialogResultProvider = ""
 	keyDialogResultBaseURL = ""
+	keyDialogResultModel = ""
 	keyDialogHwnd = 0
 	keyDialogBaseURLHwnd = 0
+	keyDialogModelHwnd = 0
 
 	hInst, _, _ := pGetModuleHandleW.Call(0)
 
 	// 屏幕居中
 	sw, _, _ := pGetSystemMetrics.Call(0) // SM_CXSCREEN
 	sh, _, _ := pGetSystemMetrics.Call(1) // SM_CYSCREEN
-	const dlgW, dlgH = 520, 220
+	const dlgW, dlgH = 520, 250
 	x := (int32(sw) - dlgW) / 2
 	y := (int32(sh) - dlgH) / 2
 	if x < 0 {
@@ -468,7 +532,7 @@ func PromptAPIKey(existingKey, existingProv, existingURL string) (key, provider,
 	)
 	keyDialogHwnd = dlgHwnd
 	if dlgHwnd == 0 {
-		return "", "", "", false, false, &keyDialogErr{"CreateWindowEx failed"}
+		return "", "", "", "", false, false, &keyDialogErr{"CreateWindowEx failed"}
 	}
 
 	// 强制 un-minimize（CW_USEDEFAULT 老坑）
@@ -483,22 +547,7 @@ func PromptAPIKey(existingKey, existingProv, existingURL string) (key, provider,
 		}
 	}
 
-	// 预填 base URL
-	preURL := existingURL
-	if preURL == "" {
-		preURL = providerDefaultBase(existingProv)
-	}
-	if preURL == "" {
-		preURL = providerDefaultBase("openai")
-	}
-	if keyDialogBaseURLHwnd != 0 {
-		fillURL, _ := syscall.UTF16FromString(preURL)
-		if len(fillURL) > 0 {
-			pSendMessageW.Call(keyDialogBaseURLHwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&fillURL[0])))
-		}
-	}
-
-	// 预选 provider radio
+	// 预选 provider radio（先 radio 后填 URL/model — radio change 会自动写）
 	preProv := existingProv
 	if preProv == "" {
 		preProv = "openai"
@@ -515,6 +564,30 @@ func PromptAPIKey(existingKey, existingProv, existingURL string) (key, provider,
 	provHwnd, _, _ := pGetDlgItem.Call(dlgHwnd, uintptr(provID))
 	if provHwnd != 0 {
 		pSendMessageW.Call(provHwnd, 0x00F1, 1, 0) // BM_SETCHECK
+	}
+
+	// 预填 base URL（existingURL 优先，否则 provider default）
+	preURL := existingURL
+	if preURL == "" {
+		preURL = providerDefaultBase(preProv)
+	}
+	if keyDialogBaseURLHwnd != 0 {
+		fillURL, _ := syscall.UTF16FromString(preURL)
+		if len(fillURL) > 0 {
+			pSendMessageW.Call(keyDialogBaseURLHwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&fillURL[0])))
+		}
+	}
+
+	// 预填 model（existingModel 优先，否则 provider default）
+	preModel := existingModel
+	if preModel == "" {
+		preModel = providerDefaultModel(preProv)
+	}
+	if keyDialogModelHwnd != 0 {
+		fillModel, _ := syscall.UTF16FromString(preModel)
+		if len(fillModel) > 0 {
+			pSendMessageW.Call(keyDialogModelHwnd, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&fillModel[0])))
+		}
 	}
 
 	// Sub message loop
@@ -561,5 +634,5 @@ func PromptAPIKey(existingKey, existingProv, existingURL string) (key, provider,
 		}
 	}
 
-	return keyDialogResultKey, keyDialogResultProvider, keyDialogResultBaseURL, keyDialogResultSave, keyDialogResultOK, nil
+	return keyDialogResultKey, keyDialogResultProvider, keyDialogResultBaseURL, keyDialogResultModel, keyDialogResultSave, keyDialogResultOK, nil
 }
