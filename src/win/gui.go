@@ -16,6 +16,7 @@
 package win
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -546,7 +547,8 @@ func onTick(_ uintptr) {
 // 行为：
 //   1. 检查 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep（B 修复 M-3）
 //   2. prepend `[HH:MM:SS] ` 时间戳（D：方便定位日志时间）
-//   3. EM_SETSEL(-1,-1) + EM_REPLACESEL 追加 + EM_SCROLLCARET 滚动
+//   3. 找 think 段（<think>...</think>），单独 EM_SETCHARFORMAT 改 yHeight 让其"小一号"
+//   4. EM_SETSEL(-1,-1) + EM_REPLACESEL 追加 + EM_SCROLLCARET 滚动
 func appendLog(wparam, lparam uintptr) {
 	if gLog == 0 || lparam == 0 {
 		return
@@ -576,7 +578,12 @@ func appendLog(wparam, lparam uintptr) {
 		lineBuf[i] = *(*uint16)(unsafe.Pointer(lparam + uintptr(i)*2))
 	}
 	combined := make([]uint16, 0, len(prefixBuf)+len(lineBuf))
-	combined = append(combined, prefixBuf...)
+	// prefixBuf 来自 syscall.UTF16FromString，含尾部 NUL。EM_REPLACESEL 是 NUL-terminated
+	// 字符串写入（NUL 出现就截断），所以 combined 末尾不能有 NUL 干扰 lineBuf 进入 EDIT。
+	// 方案：剥 prefixBuf 尾 NUL（lineBuf 本身不含 NUL，appendLog 入口用 c==0 检测提前 break）。
+	if len(prefixBuf) > 0 {
+		combined = append(combined, prefixBuf[:len(prefixBuf)-1]...)
+	}
 	combined = append(combined, lineBuf...)
 
 	// 移到末尾 + 追加
@@ -585,6 +592,94 @@ func appendLog(wparam, lparam uintptr) {
 		pSendMessageW.Call(gLog, EM_REPLACESEL, 0, uintptr(unsafe.Pointer(&combined[0])))
 	}
 	pSendMessageW.Call(gLog, EM_SCROLLCARET, 0, 0)
+
+	// 4) think 段染色（yHeight 缩小 = 小一号）
+	// prefixLen = 实际写入 EDIT 的 prefix 字符数 = len(prefixBuf)-1（剥了尾 NUL）
+	if lineLen > 0 {
+		styleThinkBlocks(lineBuf, len(prefixBuf)-1)
+	}
+}
+
+// thinkSpan 描述一个 think 段在 lineBuf 里的起止位置（uint16 单元数）。
+type thinkSpan struct{ Start, End int }
+
+// findThinkBlocks 扫描 lineBuf 找所有 <think>...</think> 段（嵌套不支持）。
+// lineBuf 是 UTF-16 LE 的 []uint16；tag 是 7/8 个 ASCII 字符（< 占 1 uint16 单元）。
+// 返回的 Start/End 是 lineBuf 的 uint16 单元索引，End = </think> 之后位置（开区间）。
+func findThinkBlocks(lineBuf []uint16) []thinkSpan {
+	var spans []thinkSpan
+	n := len(lineBuf)
+	const tagStartLen = 7 // len("<think>")
+	const tagEndLen = 8   // len("</think>")
+	for i := 0; i < n; {
+		// 找 <think>
+		s := -1
+		for j := i; j+tagStartLen <= n; j++ {
+			if lineBuf[j] == '<' && lineBuf[j+1] == 't' && lineBuf[j+2] == 'h' &&
+				lineBuf[j+3] == 'i' && lineBuf[j+4] == 'n' && lineBuf[j+5] == 'k' &&
+				lineBuf[j+6] == '>' {
+				s = j
+				break
+			}
+		}
+		if s < 0 {
+			break
+		}
+		// 找 </think>
+		e := -1
+		for j := s + tagStartLen; j+tagEndLen <= n; j++ {
+			if lineBuf[j] == '<' && lineBuf[j+1] == '/' && lineBuf[j+2] == 't' &&
+				lineBuf[j+3] == 'h' && lineBuf[j+4] == 'i' && lineBuf[j+5] == 'n' &&
+				lineBuf[j+6] == 'k' && lineBuf[j+7] == '>' {
+				e = j + tagEndLen
+				break
+			}
+		}
+		if e < 0 {
+			// 没结尾就染到末尾（DeepSeek 偶尔截断）
+			e = n
+		}
+		spans = append(spans, thinkSpan{Start: s, End: e})
+		i = e
+	}
+	return spans
+}
+
+// newCharFormatSize 构造 CHARFORMATW byte buffer（92 字节），只设 cbSize/dwMask/yHeight。
+//
+// yHeight 单位 twips：1pt = 20 twips。EDIT 默认 ~9pt = 180；think 段用 140 = 7pt 显小。
+// CHARFORMATW 是 NT-based EDIT（user32）期望的 layout（Wine dlls/user32/edit.c 严格
+// 比较 cbSize == sizeof(CHARFORMATW) == 92，60 会被拒）。字段偏移：cbSize=0, dwMask=4,
+// yHeight=12 (cbSize+dwMask+DwEffects 之后)。其他字段默认 0 (dwEffects/yOffset/crTextColor/
+// bCharSet/bPitchAndFamily/szFaceName[64])。用 byte buffer + binary.LittleEndian 写，避开
+// Go struct padding 跨平台大小不一致问题。
+func newCharFormatSize(yHeight int32) []byte {
+	const cfSize = 92 // CHARFORMATW 实际 layout size（user32 EDIT 接受值）
+	buf := make([]byte, cfSize)
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(cfSize)) // cbSize
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(CFM_SIZE)) // dwMask = CFM_SIZE
+	// yHeight 在 offset 12（cbSize+dwMask+DwEffects 之后）
+	binary.LittleEndian.PutUint32(buf[12:16], uint32(yHeight))
+	return buf
+}
+
+// styleThinkBlocks 把 lineBuf 里所有 think 段在 EDIT buffer 里单独缩小字号。
+// prefixLen 是投到 EDIT 之前 prefix 占的 UTF-16 单元数（用于换算到绝对位置）。
+// 染色后取消选择 + 移到末尾。
+func styleThinkBlocks(lineBuf []uint16, prefixLen int) {
+	spans := findThinkBlocks(lineBuf)
+	if len(spans) == 0 {
+		return
+	}
+	cf := newCharFormatSize(140) // 7pt 字符高度
+	for _, sp := range spans {
+		start := uintptr(prefixLen + sp.Start)
+		end := uintptr(prefixLen + sp.End)
+		pSendMessageW.Call(gLog, EM_SETSEL, start, end)
+		pSendMessageW.Call(gLog, EM_SETCHARFORMAT, SCF_SELECTION, uintptr(unsafe.Pointer(&cf[0])))
+	}
+	// 取消选择，移到末尾（避免滚动时高亮干扰）
+	pSendMessageW.Call(gLog, EM_SETSEL, ^uintptr(0), ^uintptr(0))
 }
 
 // truncateLogIfNeeded 检查日志 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep。

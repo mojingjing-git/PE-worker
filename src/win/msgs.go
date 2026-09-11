@@ -65,10 +65,17 @@ const (
 	EM_SETSEL       = 0x00B1
 	EM_REPLACESEL   = 0x00C2
 	EM_SCROLLCARET  = 0x00B7
+	EM_SETCHARFORMAT = 0x0444 // wParam = SCF_ flags, lParam = &CHARFORMAT (size cbSize)
 	WM_COPY         = 0x0301
 	WM_CUT          = 0x0300
 	WM_PASTE        = 0x0302
 	WM_CLEAR        = 0x0303
+
+	// EM_SETCHARFORMAT wParam flags
+	SCF_SELECTION = 0x0001 // 染当前选区（EM_SETSEL 选中的）
+
+	// CHARFORMAT dwMask 标志（用 bit 标记哪些字段有效）
+	CFM_SIZE = 0x80000000 // yHeight 字段有效（绝对值，twips）
 	ES_MULTILINE    = 0x0004
 	ES_READONLY     = 0x0800
 	ES_AUTOVSCROLL  = 0x0040
