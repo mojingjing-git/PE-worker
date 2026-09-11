@@ -349,7 +349,7 @@ func onCreate(hwnd uintptr) {
 		WS_EX_CLIENTEDGE,
 		uintptr(unsafe.Pointer(cls)),
 		0,
-		WS_CHILD|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,
+		WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,
 		0, 0, 100, 100,
 		hwnd, uintptr(idLog), hInst, 0,
 	)
@@ -364,7 +364,7 @@ func onCreate(hwnd uintptr) {
 		WS_EX_CLIENTEDGE,
 		uintptr(unsafe.Pointer(clsI)),
 		0,
-		WS_CHILD|ES_AUTOHSCROLL,
+		WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,
 		0, 0, 100, 24,
 		hwnd, uintptr(idInput), hInst, 0,
 	)
@@ -381,7 +381,7 @@ func onCreate(hwnd uintptr) {
 		0,
 		uintptr(unsafe.Pointer(clsB)),
 		uintptr(unsafe.Pointer(sendTxt)),
-		WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
 		0, 0, 60, 24,
 		hwnd, uintptr(idSend), hInst, 0,
 	)
@@ -396,7 +396,7 @@ func onCreate(hwnd uintptr) {
 		0,
 		uintptr(unsafe.Pointer(clsB)),
 		uintptr(unsafe.Pointer(stopTxt)),
-		WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
 		0, 0, 60, 24,
 		hwnd, uintptr(idStop), hInst, 0,
 	)
@@ -413,7 +413,7 @@ func onCreate(hwnd uintptr) {
 		0,
 		uintptr(unsafe.Pointer(clsS)),
 		uintptr(unsafe.Pointer(statusTxt)),
-		WS_CHILD|SS_LEFT,
+		WS_CHILD|WS_VISIBLE|SS_LEFT,
 		0, 0, 100, 20,
 		hwnd, uintptr(idStatus), hInst, 0,
 	)
