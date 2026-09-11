@@ -41,6 +41,11 @@ var (
 	pProcess32NextW           = kernel32.NewProc("Process32NextW")
 	pSleep                    = kernel32.NewProc("Sleep")
 	pGetExitCodeThread        = kernel32.NewProc("GetExitCodeThread")
+	// 双阶段 OEM(GBK)→UTF-8 转码（H-1：修 cmd.exe 输出中文乱码）。
+	// CP_OEMCP(=1) 自动跟随控制台当前 OEM 代码页（中文 PE=936/GBK；
+	// 若 chcp 65001 则自动按 UTF-8 解，无需特判）。
+	pMultiByteToWideChar      = kernel32.NewProc("MultiByteToWideChar")
+	pWideCharToMultiByte      = kernel32.NewProc("WideCharToMultiByte")
 	// Job Object API（job.go 用）
 	pCreateJobObjectW         = kernel32.NewProc("CreateJobObjectW")
 	pSetInformationJobObject  = kernel32.NewProc("SetInformationJobObject")

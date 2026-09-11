@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"peagent/src/win"
 )
 
 const execTimeoutSec = 60
@@ -54,16 +56,31 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 		cmd.Dir = ctx.Cwd
 	}
 	out, err := cmd.CombinedOutput()
+	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
+	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
+	outStr, decErr := win.OEMToUTF8(out)
+	if decErr != nil {
+		outStr = string(out) // 解码失败兜底用原始字节（decErr 已在上层透传）
+	}
 	if cctx.Err() == context.DeadlineExceeded {
-		return Result{Text: fmt.Sprintf("[exec timeout %ds] partial: %s", execTimeoutSec, string(out))},
+		if decErr != nil {
+			return Result{Text: outStr}, fmt.Errorf("exec: timeout after %ds (decode output: %w)", execTimeoutSec, decErr)
+		}
+		return Result{Text: fmt.Sprintf("[exec timeout %ds] partial: %s", execTimeoutSec, outStr)},
 			fmt.Errorf("exec: timeout after %ds", execTimeoutSec)
 	}
 	if err != nil {
 		// exit code != 0 也算 err, 但把 output 也带回去
-		return Result{Text: string(out)},
+		if decErr != nil {
+			return Result{Text: outStr}, fmt.Errorf("exec: %v (decode output: %w)", err, decErr)
+		}
+		return Result{Text: outStr},
 			fmt.Errorf("exec: %v", err)
 	}
-	return Result{Text: string(out)}, nil
+	if decErr != nil {
+		return Result{Text: outStr}, fmt.Errorf("exec: decode output: %w", decErr)
+	}
+	return Result{Text: outStr}, nil
 }
 
 // containsToken 检查 list 里是否包含 token（不区分大小写）。

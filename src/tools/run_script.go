@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"peagent/src/win"
 )
 
 const runScriptTimeoutSec = 120
@@ -57,15 +59,30 @@ func (runScriptTool) Run(ctx *Context, args string) (Result, error) {
 		cmd.Dir = ctx.Cwd
 	}
 	out, err := cmd.CombinedOutput()
+	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
+	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
+	outStr, decErr := win.OEMToUTF8(out)
+	if decErr != nil {
+		outStr = string(out) // 解码失败兜底用原始字节（decErr 已在上层透传）
+	}
 	if cctx.Err() == context_DeadlineExceeded {
-		return Result{Text: fmt.Sprintf("[run_script timeout %ds] partial: %s", runScriptTimeoutSec, string(out))},
+		if decErr != nil {
+			return Result{Text: outStr}, fmt.Errorf("run_script: timeout after %ds (decode output: %w)", runScriptTimeoutSec, decErr)
+		}
+		return Result{Text: fmt.Sprintf("[run_script timeout %ds] partial: %s", runScriptTimeoutSec, outStr)},
 			fmt.Errorf("run_script: timeout after %ds", runScriptTimeoutSec)
 	}
 	if err != nil {
-		return Result{Text: string(out)},
+		if decErr != nil {
+			return Result{Text: outStr}, fmt.Errorf("run_script: %v (decode output: %w)", err, decErr)
+		}
+		return Result{Text: outStr},
 			fmt.Errorf("run_script: %v", err)
 	}
-	return Result{Text: string(out)}, nil
+	if decErr != nil {
+		return Result{Text: outStr}, fmt.Errorf("run_script: decode output: %w", decErr)
+	}
+	return Result{Text: outStr}, nil
 }
 
 func init() {
