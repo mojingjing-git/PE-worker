@@ -115,6 +115,12 @@ func Run() int {
 	}
 	gHwnd = hwnd
 
+	// 主窗口就绪回调（main.go 在此设 logx.SetHWND，把日志投递到本窗口的 WM_LOG_LINE）。
+	// 必须在消息循环启动前调，否则 logx 拿不到 hwnd → 日志走 stderr 兜底 → GUI 看不到任何输出。
+	if OnMainWindowCreated != nil {
+		OnMainWindowCreated(hwnd)
+	}
+
 	// 把窗口强制放到**主显示器**的工作区左上角。
 	// 不做这一步的话，在装了多个虚拟显示适配器（MuMu / Todesk / GameViewer /
 	// Meta VR 等）的开发机上，OS 可能把窗口分配到一个没有真屏的虚拟适配器
@@ -167,11 +173,19 @@ var (
 	OnStop func()            // 用户点 Stop 按钮 / 按 Esc
 )
 
+// OnMainWindowCreated 主窗口句柄就绪回调。win.Run() 在 CreateWindowExW 之后、消息
+// 循环启动前调一次。main.go 用它把 hwnd 绑给 logx.SetHWND，使后续日志走
+// PostMessage(WM_LOG_LINE) 到本窗口（兜底 fallback 是写文件，GUI 看不到）。
+var OnMainWindowCreated func(hwnd uintptr)
+
 // SetOnSend 设 Send 回调。返回时**立即生效**（wndProc 下一条 WM_COMMAND 就会调）。
 func SetOnSend(f func(text string)) { OnSend = f }
 
 // SetOnStop 设 Stop 回调。
 func SetOnStop(f func()) { OnStop = f }
+
+// SetOnMainWindowCreated 设主窗口就绪回调。
+func SetOnMainWindowCreated(f func(hwnd uintptr)) { OnMainWindowCreated = f }
 
 // readInputText 拿输入框当前文本（WM_GETTEXT）。返回空串就是空。
 // 注意：返回的 Go string 引用底层 UTF-16 buffer 是 win 自己的 strKeep，

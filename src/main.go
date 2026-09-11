@@ -183,6 +183,11 @@ func boot() int {
 		_ = ctx
 		_ = cancel
 	})
+	// 主窗口就绪后把 hwnd 绑给 logx，否则日志走文件兜底，GUI 看不到任何输出
+	win.SetOnMainWindowCreated(func(hwnd uintptr) {
+		logx.SetHWND(hwnd)
+		_ = logx.Info("** ver logx bound hwnd=%d; 日志开始投递到 GUI", hwnd)
+	})
 
 	// [7] --no-gui smoke 模式：发一条 → 取消 → 等 worker 退出
 	if *noGUI {
