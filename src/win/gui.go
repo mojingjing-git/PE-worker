@@ -121,10 +121,15 @@ func Run() int {
 	// → 渲染到不存在的 surface → 看起来"白屏"。
 	// SPI_GETWORKAREA 拿主显示器的可用工作区（去掉任务栏），(0,0) 相对工作区原点
 	// 即"任务栏上面那一行的左上角"，最稳的位置。
+	//
+	// 第二个修：显式 ShowWindow(SW_RESTORE)。前面 CreateWindowExW 用
+	// WS_VISIBLE + CW_USEDEFAULT + CW_USEDEFAULT 时，Win32 老 bug 会让窗口
+	// 默认处于**最小化**状态（坐标跑到 -32000, -32000 的 taskbar 角落），
+	// SW_SHOWNORMAL 解不掉，需要 SW_RESTORE（=9）显式 un-minimize。
 	forceOnPrimaryMonitor(hwnd)
+	pShowWindow.Call(hwnd, SW_RESTORE)
 
-	// 显式 ShowWindow + UpdateWindow (CreateWindowEx 已经给 wsVisible, 但保险)
-	pShowWindow.Call(hwnd, SW_SHOWNORMAL)
+	// 显式 UpdateWindow（CreateWindowEx 已经给 wsVisible, 但保险）
 	pUpdateWindow.Call(hwnd)
 
 	// 1 Hz 心跳定时器（status bar 刷新用, P1-11 实装具体内容）

@@ -87,6 +87,7 @@ const (
 
 	// ShowWindow
 	SW_SHOWNORMAL = 1
+	SW_RESTORE    = 9
 
 	// GetStockObject 常量
 	DEFAULT_GUI_FONT = 17
