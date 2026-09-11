@@ -45,3 +45,51 @@ func PostMessageW(hwnd uintptr, msg uint32, wparam, lparam uintptr) (uintptr, er
 	}
 	return r, nil
 }
+
+// 通用 Win32 消息 ID（来自 WINUSER.H，gui.go 用）
+const (
+	WM_CREATE  = 0x0001
+	WM_DESTROY = 0x0002
+	WM_CLOSE   = 0x0010
+	WM_SIZE    = 0x0005
+	WM_TIMER   = 0x0118
+	WM_PAINT   = 0x000F
+	WM_SETFONT = 0x0030
+	WM_GETTEXTLENGTH = 0x000E
+
+	// EDIT 控件消息
+	EM_SETSEL       = 0x00B1
+	EM_REPLACESEL   = 0x00C2
+	EM_SCROLLCARET  = 0x00B7
+	ES_MULTILINE    = 0x0004
+	ES_READONLY     = 0x0800
+	ES_AUTOVSCROLL  = 0x0040
+	ES_AUTOHSCROLL  = 0x0080
+
+	// BUTTON 风格
+	BS_PUSHBUTTON = 0x00000000
+	BS_DEFPUSHBUTTON = 0x00000001
+
+	// 窗口风格
+	WS_OVERLAPPEDWINDOW = 0x00CF0000
+	WS_VISIBLE          = 0x10000000
+	WS_CHILD            = 0x40000000
+	WS_VSCROLL          = 0x00200000
+	WS_TABSTOP          = 0x00010000
+	WS_EX_CLIENTEDGE    = 0x00000200
+
+	// STATIC 风格
+	SS_LEFT = 0x00000000
+
+	// ShowWindow
+	SW_SHOWNORMAL = 1
+
+	// GetStockObject 常量
+	DEFAULT_GUI_FONT = 17
+
+	// IDC_ARROW
+	IDC_ARROW = 32512
+
+	// CW_USEDEFAULT (作 int32 负值传入 → 强转 int32 当 uintptr)
+	CW_USEDEFAULT = ^uintptr(0) // 0xFFFFFFFF...
+)
