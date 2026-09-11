@@ -5,10 +5,20 @@ import (
 	"testing"
 )
 
+// 14 个工具的硬性清单 (M1-L1: 注册表必须可穷举核对)。
+// 新增工具时必须同步修改这里 + tools_test_extra.go。
+var allToolNames = []string{
+	"exec", "run_script", "help", "selftest", // P1-9a
+	"ls", "cat", "grep", "find", // P1-9b read
+	"write", "edit", "append", // P1-9b write
+	"http_get", "https_get", // P1-9b net
+	"ps", // P1-9b ps
+}
+
 func TestRegister_All(t *testing.T) {
 	tools := All()
-	if len(tools) == 0 {
-		t.Fatal("All() 应至少有 4 个工具 (exec/run_script/help/selftest)")
+	if len(tools) != len(allToolNames) {
+		t.Fatalf("All() 应有 %d 个工具, 实际 %d", len(allToolNames), len(tools))
 	}
 	names := map[string]bool{}
 	for _, t2 := range tools {
@@ -20,7 +30,7 @@ func TestRegister_All(t *testing.T) {
 			t.Errorf("%s 描述为空", t2.Name())
 		}
 	}
-	for _, want := range []string{"exec", "run_script", "help", "selftest"} {
+	for _, want := range allToolNames {
 		if !names[want] {
 			t.Errorf("缺 %s 工具", want)
 		}

@@ -56,6 +56,11 @@ var (
 	ErrQueryInherited  = errors.New("win: NtQueryInformationProcess failed")
 )
 
+// SnapshotProcesses 是 snapshotProcs 的导出版本, 给 tools/ps.go 用。
+func SnapshotProcesses() (map[uint32]ProcessInfo, error) {
+	return snapshotProcs()
+}
+
 // processEntry32 是 Process32FirstW/NextW 的输出。
 // 字段顺序与 Win32 头文件一致：所有 uint32/int32 自然对齐，
 // ULONG_PTR（th32DefaultHeapID）按平台字长变。ExeFile 是 MAX_PATH=260 个 uint16。
