@@ -20,19 +20,19 @@ obj/
 !dist/
 !dist/spike386/*.exe
 !dist/spike64/*.exe
-# ---- dist/ 根下的 owl.exe / owl64.exe 也保留（Phase 1 产物） ----
-!dist/owl.exe
-!dist/owl64.exe
+# ---- dist/ 根下的 smith.exe / smith64.exe 也保留（Phase 1 产物） ----
+!dist/smith.exe
+!dist/smith64.exe
 
 # ---- PE 探针运行时写的测试文件 ----
 *.pe_spike_*.txt
 dist/spike386/pe_spike_*.txt
 dist/spike64/pe_spike_*.txt
 
-# ---- owl.exe 运行时写的早期日志（用户拿来看 PE 启动失败原因的） ----
+# ---- smith.exe 运行时写的早期日志（用户拿来看 PE 启动失败原因的） ----
 # 不入仓；是本地诊断文件
-dist/owl.log
-.tmp/owl.log
+dist/smith.log
+.tmp/smith.log
 
 # ---- OS / editor temp ----
 Thumbs.db

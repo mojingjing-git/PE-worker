@@ -4,7 +4,7 @@
 //
 //	[1] 命令行参数（--console / --key / --no-gui）
 //	[2] 早期文件日志（GUI 起来之前就能写）
-//	[3] 加载 owl.ini（缺失走默认；缺 key 不致命，下一步报清晰错）
+//	[3] 加载 smith.ini（缺失走默认；缺 key 不致命，下一步报清晰错）
 //	[4] 构造 LLM 客户端（cfg 缺字段 → 返 nil 客户端，loop 调用时再报错）
 //	[5] 绑 GUI 钩子：OnSend → worker，OnStop → cancel
 //	[6] 启动 worker goroutine（消费 userInputCh）
@@ -53,7 +53,7 @@ func boot() int {
 	// [1] 命令行
 	var (
 		consoleFlag = flag.Bool("console", false, "create console window for stderr output")
-		keyFlag     = flag.String("key", "", "API key (overrides owl.ini; not recommended, visible in tasklist)")
+		keyFlag     = flag.String("key", "", "API key (overrides smith.ini; not recommended, visible in tasklist)")
 		noGUI       = flag.Bool("no-gui", false, "headless smoke test: run one user input then exit")
 	)
 	flag.Parse()
@@ -70,7 +70,7 @@ func boot() int {
 	// [3] 加载 cfg
 	exe, _ := os.Executable()
 	exeDir := filepath.Dir(exe)
-	iniPath := filepath.Join(exeDir, "owl.ini")
+	iniPath := filepath.Join(exeDir, "smith.ini")
 	cfgInstance, err := loadCfg(iniPath)
 	if err != nil {
 		// 加载失败 = 致命（ini 写了错格式）
@@ -181,7 +181,7 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 		}
 		// 没有 LLM 客户端：直接报"无法对话"
 		if llm == nil {
-			_ = logx.Error("!! LLM 未配置；请编辑 owl.ini 的 [llm] 段")
+			_ = logx.Error("!! LLM 未配置；请编辑 smith.ini 的 [llm] 段")
 			continue
 		}
 		loop := agent.NewLoop(llm, toolCtx, maxTurns, systemPrompt)
@@ -278,16 +278,16 @@ func buildLLM(c *cfg.Config) (agent.Client, error) {
 	})
 }
 
-// setupEarlyLog 启动早期文件日志，路径优先级：exeDir/owl.log → X:\tmp\owl.log → 失败。
+// setupEarlyLog 启动早期文件日志，路径优先级：exeDir/smith.log → X:\tmp\smith.log → 失败。
 //
 // 早期日志在 GUI 起来前就有：用户能看见 GUI 起来前的崩溃（这是 A6 的核心）。
 // logx 拿到 hwnd 后会自动切到 PostMessage 投递。
 func setupEarlyLog() (string, error) {
 	candidates := []string{}
 	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "owl.log"))
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "smith.log"))
 	}
-	candidates = append(candidates, `X:\tmp\owl.log`, `C:\tmp\owl.log`)
+	candidates = append(candidates, `X:\tmp\smith.log`, `C:\tmp\smith.log`)
 	for _, p := range candidates {
 		if err := tryOpenLog(p); err == nil {
 			return p, nil

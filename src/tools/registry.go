@@ -67,13 +67,13 @@ type Context struct {
 	// Confirm 让工具要求用户确认。true = 继续, false = 拒绝。
 	// 不需要确认的工具**不**调。
 	Confirm func(prompt string) bool
-	// Cwd 是工具执行的工作目录（默认 owl.exe 同目录）。
+	// Cwd 是工具执行的工作目录（默认 smith.exe 同目录）。
 	Cwd string
-	// Config 是 owl.ini 加载的配置。
+	// Config 是 smith.ini 加载的配置。
 	Config *Config
 }
 
-// Config 是工具需要的 owl.ini 字段子集（独立于 cfg.Config 以避免循环 import）。
+// Config 是工具需要的 smith.ini 字段子集（独立于 cfg.Config 以避免循环 import）。
 type Config struct {
 	Whitelist []string
 	Confirm   bool

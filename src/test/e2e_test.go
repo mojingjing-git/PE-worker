@@ -39,7 +39,7 @@ import (
 
 func TestE2E_CfgToAgentConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "owl.ini")
+	path := filepath.Join(dir, "smith.ini")
 	os.WriteFile(path, []byte(`[llm]
 base = https://api.openai.com/v1
 model = gpt-4
@@ -244,10 +244,10 @@ func makeGarbage() {
 // ---------- 6. cfg 缺文件时 Default() 兜底 ----------
 
 func TestE2E_CfgFallbackToDefault(t *testing.T) {
-	c, err := cfg.Load("Z:\\nonexistent\\path\\owl.ini")
+	c, err := cfg.Load("Z:\\nonexistent\\path\\smith.ini")
 	if err == nil {
 		// 如果 Z 盘存在（不该），那走的是真 Load；这情况下 cfg 应该有 LLM 都为零
-		if c.LLM.KeyFile != "owl.key" {
+		if c.LLM.KeyFile != "smith.key" {
 			t.Errorf("Loaded cfg KeyFile = %q", c.LLM.KeyFile)
 		}
 		return

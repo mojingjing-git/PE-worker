@@ -99,7 +99,7 @@ func Run() int {
 	}
 
 	// 创建主窗口
-	title, _ := Ptr("owl - PE agent")
+	title, _ := Ptr("smith - PE agent")
 	defer Hold(title)
 
 	hwnd, _, _ := pCreateWindowExW.Call(

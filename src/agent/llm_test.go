@@ -71,7 +71,7 @@ func TestAnthropic_TextResponse(t *testing.T) {
 	resp, err := c.Chat(context.Background(), Request{
 		// 加 system 来验 system 字段是顶层（不是 messages 里）。
 		Messages: []Message{
-			{Role: RoleSystem, Content: "你是 owl"},
+			{Role: RoleSystem, Content: "你是 smith"},
 			{Role: RoleUser, Content: "hi"},
 		},
 		MaxTokens: 100,
@@ -102,7 +102,7 @@ func TestAnthropic_TextResponse(t *testing.T) {
 		t.Errorf("body missing model: %s", r.Body)
 	}
 	// system 字段在顶层
-	if !strings.Contains(string(r.Body), `"system":"你是 owl"`) {
+	if !strings.Contains(string(r.Body), `"system":"你是 smith"`) {
 		t.Errorf("body missing system 顶层字段: %s", r.Body)
 	}
 	// system 不应在 messages 里

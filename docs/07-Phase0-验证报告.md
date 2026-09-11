@@ -268,7 +268,7 @@ hello_386.exe -alloc 3000   ->  整屏 goroutine dump，进程带崩溃栈退出
 
 （初版报告的 amd64 一列偏大，是当时漏了 `-trimpath`。两个架构合计 27.0 MB。）
 
-**推算正式版 owl.exe** ≈ gui + https + image/png + JSON ≈ **6~8 MB（386）**，与 PLAN 里"7~10MB"的估算吻合。加 UPX 可压到 3MB 左右。
+**推算正式版 smith.exe**（2026-09-11 改名） ≈ gui + https + image/png + JSON ≈ **6~8 MB（386）**，与 PLAN 里"7~10MB"的估算吻合。加 UPX 可压到 3MB 左右。
 
 ---
 

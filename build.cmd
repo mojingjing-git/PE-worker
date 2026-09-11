@@ -113,18 +113,18 @@ if not exist dist mkdir dist
 
 echo [INFO] building 386 ...
 set "GOARCH=386"
-go build -trimpath -ldflags "-s -w -H windowsgui" -o dist\owl.exe .\src
+go build -trimpath -ldflags "-s -w -H windowsgui" -o dist\smith.exe .\src
 if errorlevel 1 ( echo [FATAL] build 386 failed & exit /b 1 )
 
 echo [INFO] building amd64 ...
 set "GOARCH=amd64"
-go build -trimpath -ldflags "-s -w -H windowsgui" -o dist\owl64.exe .\src
+go build -trimpath -ldflags "-s -w -H windowsgui" -o dist\smith64.exe .\src
 if errorlevel 1 ( echo [FATAL] build amd64 failed & exit /b 1 )
 
 rem size self-report
-for %%A in (dist\owl.exe dist\owl64.exe) do (
+for %%A in (dist\smith.exe dist\smith64.exe) do (
     for %%S in (%%~zA) do echo [INFO] %%~nxA = %%S bytes
 )
 
-echo [OK] build complete: dist\owl.exe + dist\owl64.exe
+echo [OK] build complete: dist\smith.exe + dist\smith64.exe
 endlocal

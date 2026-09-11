@@ -46,7 +46,7 @@ provider = deepseek
 
 func TestDefault_HasAllFields(t *testing.T) {
 	c := Default()
-	if c.LLM.KeyFile != "owl.key" {
+	if c.LLM.KeyFile != "smith.key" {
 		t.Errorf("KeyFile default = %q", c.LLM.KeyFile)
 	}
 	if c.LLM.Timeout != 120 {
@@ -74,7 +74,7 @@ func TestLoad_Sample(t *testing.T) {
 [llm]
 base = https://api.openai.com/v1/chat/completions
 model = gpt-4
-keyfile = owl.key
+keyfile = smith.key
 key = "sk-test 1234"
 vision = 1
 timeout = 90
@@ -101,7 +101,7 @@ fontsize = 14
 	if c.LLM.Model != "gpt-4" {
 		t.Errorf("Model = %q", c.LLM.Model)
 	}
-	if c.LLM.KeyFile != "owl.key" {
+	if c.LLM.KeyFile != "smith.key" {
 		t.Errorf("KeyFile = %q", c.LLM.KeyFile)
 	}
 	if c.LLM.Key != "sk-test 1234" {
@@ -143,7 +143,7 @@ func TestLoad_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.LLM.KeyFile != "owl.key" {
+	if c.LLM.KeyFile != "smith.key" {
 		t.Errorf("KeyFile 默认 = %q", c.LLM.KeyFile)
 	}
 	if c.LLM.Timeout != 120 {

@@ -8,7 +8,7 @@
 //   - value 可用 "..." 或 '...' 引号包裹（首尾匹配才剥）
 //
 // 不支持：嵌套 section、include、escape 字符、多行 value。
-// 这对 owl.ini 这种 12 字段的小配置文件够用。
+// 这对 smith.ini 这种 12 字段的小配置文件够用。
 //
 // v1-L1 契约：所有 API 返 (T, error)。缺字段用零值（ini 文件没该 section 不报错）。
 
@@ -25,7 +25,7 @@ import (
 
 // 默认值（PLAN §0.6 B6 字段表 + B7 字段约定）
 const (
-	DefaultKeyFile   = "owl.key"
+	DefaultKeyFile   = "smith.key"
 	DefaultVision    = false
 	DefaultTimeout   = 120
 	DefaultConfirm   = true
@@ -34,7 +34,7 @@ const (
 	DefaultFontSize  = 12
 )
 
-// Config 是 owl.ini 解析后的根结构。
+// Config 是 smith.ini 解析后的根结构。
 type Config struct {
 	LLM   LLMConfig
 	Agent AgentConfig

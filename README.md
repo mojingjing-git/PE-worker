@@ -1,4 +1,4 @@
-# PE-agent (owl / 夜枭)
+# PE-agent (smith / 铁匠)
 
 [![Go 1.20.14](https://img.shields.io/badge/Go-1.20.14-00ADD8?logo=go)](https://go.dev/dl/)
 [![386 + amd64](https://img.shields.io/badge/arch-386%20%2B%20amd64-blue)](#build)
@@ -8,7 +8,7 @@
 > 三区 GUI + 14 工具 + 多 LLM provider，
 > 跑在精简的 Win7 / Win10 / Win11 PE 镜像里，不依赖系统根证书库。
 
-中文代号：**夜枭 (owl)**。窗口标题 `owl - PE agent`，日志前缀 `ai > you > -> <- !!`。
+中文代号：**铁匠 (smith)**。窗口标题 `smith - PE agent`，日志前缀 `ai > you > -> <- !!`。
 
 ---
 
@@ -18,8 +18,8 @@
 
 ```
 ┌────────────────────────────────────────────────────┐
-│ [I] ** ver boot start log=...\owl.log              │
-│ [I] ** ver cfg loaded ini=...\owl.ini              │
+│ [I] ** ver boot start log=...\smith.log            │
+│ [I] ** ver cfg loaded ini=...\smith.ini            │
 │ [W] !! llm: 缺配置（base/model/key）...            │
 │ [I] you > 看看 C 盘还剩多少                          │
 │ [I] -> diskinfo C:                                 │
@@ -72,37 +72,37 @@ build.cmd clean
 产物：
 
 ```
-dist\owl.exe     5,385,728 bytes (386,  Win7 PE 主力)
-dist\owl64.exe   5,529,600 bytes (amd64, 新 PE)
+dist\smith.exe     5,385,728 bytes (386,  Win7 PE 主力)
+dist\smith64.exe   5,529,600 bytes (amd64, 新 PE)
 ```
 
 ### 配置
 
-复制 `owl.ini.example` → `owl.ini`（同目录），填 LLM 配置：
+复制 `smith.ini.example` → `smith.ini`（同目录），填 LLM 配置：
 
 ```ini
 [llm]
 base = https://api.openai.com/v1
 model = gpt-4
 provider = openai
-keyfile = owl.key       ; 优先 keyfile（不暴露在 tasklist）
+keyfile = smith.key     ; 优先 keyfile（不暴露在 tasklist）
 ; key = sk-...          ; 兜底用 ini literal（不推荐）
 timeout = 120
 ```
 
-`owl.key` 放同目录，单行 API key。
+`smith.key` 放同目录，单行 API key。
 
 ### 跑
 
 ```cmd
 :: GUI 模式
-dist\owl.exe
+dist\smith.exe
 
 :: 无 GUI 烟雾测试（headless，自动跑 "ver" → cancel → exit 0）
-dist\owl.exe --no-gui
+dist\smith.exe --no-gui
 
 :: CLI 应急：用 --key 临时覆盖 ini（不推荐，明文在 tasklist 可见）
-dist\owl.exe --key sk-...
+dist\smith.exe --key sk-...
 ```
 
 ---
@@ -116,7 +116,7 @@ peagent/
 ├── README.md              # 本文件
 ├── go.mod                 # module peagent, go 1.20
 ├── build.cmd              # 一键 vet + test + build
-├── owl.ini.example        # 配置文件模板
+├── smith.ini.example        # 配置文件模板
 ├── docs/                  # 7 篇专项设计（06 编号空缺）
 │   ├── 01-WinPE-agent-开源项目调研.md
 │   ├── 02-工具集设计建议.md
@@ -138,8 +138,8 @@ peagent/
 │   ├── logx/              # 日志
 │   └── test/              # 集成测试
 └── dist/                  # 产物（部分入仓）
-    ├── owl.exe            # Phase 1 主产物
-    ├── owl64.exe
+    ├── smith.exe            # Phase 1 主产物
+    ├── smith64.exe
     └── spike{386,64}/     # 5 个 spike 程序（PE 测试用）
 ```
 
@@ -229,7 +229,7 @@ GOARCH=386 go test -v -run TestE2E ./src/test/...
 | `tools` | 22 | 14 工具全部 smoke + help/selftest 元工具 |
 | `cfg` | 12 | INI 解析 + provider/default |
 | `logx` | 5 | PostMessage 投递 + fallback sink |
-| `test` | 11 | e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/owl.exe） |
+| `test` | 11 | e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/smith.exe） |
 
 ---
 

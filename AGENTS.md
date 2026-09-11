@@ -7,9 +7,9 @@
 
 ## 项目一句话
 
-**PE-agent**（代号 `owl` / 夜枭）—— 一个**单 exe、纯 Go、32 位为主**的 Windows PE 应急助手。GUI 三区 + 内置 14 工具 + 多 LLM provider（Anthropic / OpenAI / DeepSeek），跑在精简的 Win7/Win10/Win11 PE 镜像里，不依赖系统根证书库。
+**PE-agent**（代号 `smith` / 铁匠）—— 一个**单 exe、纯 Go、32 位为主**的 Windows PE 应急助手。GUI 三区 + 内置 14 工具 + 多 LLM provider（Anthropic / OpenAI / DeepSeek），跑在精简的 Win7/Win10/Win11 PE 镜像里，不依赖系统根证书库。
 
-主要交付：`dist/owl.exe`（5.4MB, 386）+ `dist/owl64.exe`（5.5MB, amd64）。
+主要交付：`dist/smith.exe`（5.4MB, 386）+ `dist/smith64.exe`（5.5MB, amd64）。
 
 ---
 
@@ -95,7 +95,7 @@ import "peagent/win"            // 错误：会找不到
 `.gitignore` 规则：
 
 - `*.exe` 排除所有 exe
-- `!dist/owl.exe` / `!dist/owl64.exe` / `!dist/spike{386,64}/*.exe` 重新放行（用户拷 U 盘用）
+- `!dist/smith.exe` / `!dist/smith64.exe` / `!dist/spike{386,64}/*.exe` 重新放行（用户拷 U 盘用）
 - `.tmp/` / `.workbuddy/` 完全排除（Mavis runtime + 工作缓存）
 
 **新建可执行产物时**：要么改 `.gitignore` 放行，要么不 commit（看是不是用户要拷 U 盘的产物）。
@@ -111,7 +111,7 @@ F:\AI\01_项目\PE-agent\
 ├── README.md               # GitHub 入口
 ├── go.mod                  # module peagent, go 1.20
 ├── build.cmd               # 一键 vet + test + build（默认/clean/test 三个子命令）
-├── owl.ini.example         # 配置文件模板
+├── smith.ini.example         # 配置文件模板
 ├── docs/                   # 7 篇专项设计（06 编号空缺；工具集/GUI/视觉/PE 验收）
 ├── spike/                  # Phase 0 预研（只读，5 个独立 Go 程序）
 │   ├── job/                #   Job Object + 进程快照 + 杀树 + 386 字节缓冲
@@ -132,8 +132,8 @@ F:\AI\01_项目\PE-agent\
 │   ├── logx/               #   日志 + PostMessage 投递
 │   └── test/               #   集成测试（e2e + smoke_bin）
 └── dist/                   # 产物（部分入仓）
-    ├── owl.exe             #   Phase 1 主产物（386, 5.4MB）
-    ├── owl64.exe           #   Phase 1 主产物（amd64, 5.5MB）
+    ├── smith.exe             #   Phase 1 主产物（386, 5.4MB）
+    ├── smith64.exe           #   Phase 1 主产物（amd64, 5.5MB）
     ├── spike386/*.exe      #   5 个 spike 386 产物（拷 U 盘验 PE）
     └── spike64/*.exe       #   5 个 spike amd64 产物
 ```
@@ -169,7 +169,7 @@ go test -count=1 ./src/agent/...
 go test -v -run TestE2E ./src/test/...
 ```
 
-**注意**：`gui.exe` / spike 里真开窗口的程序需要 desktop，**无头环境**（CI / 远程 shell）会卡死或失败。`owl.exe --no-gui` 是 headless 烟雾测试入口（自动跑一条 "ver" → cancel → exit 0）。
+**注意**：`gui.exe` / spike 里真开窗口的程序需要 desktop，**无头环境**（CI / 远程 shell）会卡死或失败。`smith.exe --no-gui` 是 headless 烟雾测试入口（自动跑一条 "ver" → cancel → exit 0）。
 
 ---
 
@@ -181,7 +181,7 @@ go test -v -run TestE2E ./src/test/...
 
 - `P1-1: win/wstr.go (M1 + L5)` —— 第一轮的第 1 步，涉及 M1 和 L5 两条契约
 - `P1-9b: tools (read/write/net/ps) + 11 tests (L1)` —— 9b 是 9 的扩展
-- `P1-12: build.cmd + dist/owl{,64}.exe (5.4/5.5MB)` —— 跨多文件的批量提交
+- `P1-12: build.cmd + dist/smith{,64}.exe (5.4/5.5MB)` —— 跨多文件的批量提交
 
 **禁止**：
 
@@ -193,7 +193,7 @@ go test -v -run TestE2E ./src/test/...
 
 ## 已知陷阱
 
-1. **GUI 测试**：WM 命令循环阻塞 → 没法 `go test` 验证 GUI 行为。改 gui.go 后**至少** `386 + amd64 build` + 手动跑 `dist/owl.exe`。
+1. **GUI 测试**：WM 命令循环阻塞 → 没法 `go test` 验证 GUI 行为。改 gui.go 后**至少** `386 + amd64 build` + 手动跑 `dist/smith.exe`。
 2. **386 struct 对齐**：`wstrKeep`、`jobExtLimitInfo`、`processEntry32` 等跨架构结构体大小不同；用 `unsafe.Sizeof` 验，不要凭直觉。
 3. **Mock LLM 测试**：用 `httptest.NewServer`（HTTP），不是 HTTPS。生产路径的 TLS 在 `spike/https` 验证，本机 mock 只验 wire 格式。
 4. **spike/* 不可 import**：是独立 main 程序，import 会循环。

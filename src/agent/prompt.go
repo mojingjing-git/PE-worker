@@ -10,7 +10,7 @@
 //	(3) 全部从 tools/registry.go 拉名字 + 描述，不要在这里硬编码工具名。
 //	    （否则加一个工具就要改两处。）
 //
-// 中文人设：项目代号 owl（夜枭）。日志前缀 "ai > you > -> <- !!" 见 PLAN §8。
+// 中文人设：项目代号 smith（铁匠）。日志前缀 "ai > you > -> <- !!" 见 PLAN §8。
 // 系统提示词**用中文**，因为 PE 操作者主要是中文用户。
 package agent
 
@@ -42,7 +42,7 @@ func SystemPrompt(includeTools bool) string {
 
 // systemPromptCore 是核心人设 + 行为约束。
 // 长度刻意压在 ~300 token（中文比例高一点），加工具列表会涨到 ~700 token。
-const systemPromptCore = `你是 owl（夜枭），一个在 Windows PE 精简环境里跑的本地助手。环境特点：
+const systemPromptCore = `你是 smith（铁匠），一个在 Windows PE 精简环境里跑的本地助手。环境特点：
 
 - 内存盘通常是 X:，可能 72h 强制重启
 - 大量系统组件被裁剪；不要假设有记事本、浏览器、控制面板
