@@ -1,35 +1,33 @@
-# run.ps1 - smith 开发用启动脚本
+# run.ps1 - smith dev launcher
 #
-# 用法：
-#   .\run.ps1                 # 默认：编译（如需要）+ 启动 GUI
-#   .\run.ps1 -NoGui          # headless 烟雾测试 (发一条 "ver" → 退)
-#   .\run.ps1 -Rebuild        # 强制重新编译
-#   .\run.ps1 -Arch amd64     # 编译 64 位（默认 32 位，主战场是 Win7 PE）
-#   .\run.ps1 -Key sk-...     # 临时 API key（覆盖 smith.ini；不推荐）
-#   .\run.ps1 -- --extra      # 透传额外参数给 smith.exe
-#
-# 行为：
-#   1. 把 Go 1.20.14 加到 PATH（默认 workbuddy 位置，失败则报清晰错）
-#   2. 检查源码 mtime；比 .tmp/smith.exe 新则自动 rebuild
-#   3. 启动 smith.exe，PID + 启动时间打印到控制台
-#   4. smith.exe 退出后透传 exit code
-#
-# 设计原则：
-#   - **不**编译到 dist/（dist/ 是发布产物，由 build.cmd 管）
-#   - **不**污染用户环境（PATH 只在当前进程加，脚本结束就丢）
-#   - **不**锁住窗口：smith.exe 自己开窗口，你 Ctrl+C 中断此脚本不会强杀 smith
-#     （smith 收到 Ctrl+C 会 graceful 退出，因为有 WM_CLOSE handler）
+# Usage:
+#   .\run.ps1                 # build (if needed) + launch GUI
+#   .\run.ps1 -NoGui          # headless smoke test
+#   .\run.ps1 -Rebuild        # force rebuild
+#   .\run.ps1 -Arch amd64     # 64-bit (default 32-bit)
+#   .\run.ps1 -Key sk-...     # one-shot API key
+#   .\run.ps1 -- --extra      # pass extra args to smith.exe
 
-[CmdletBinding()]
+# Fix zh mojibake: Chinese Windows console is GBK (936) by default, Write-Host
+# output shows as mojibake. Switch to UTF-8. (Note: must come AFTER param block
+# because PowerShell requires param() to be the first non-comment statement.)
 param(
     [switch]$NoGui = $false,
     [switch]$Rebuild = $false,
     [ValidateSet('386', 'amd64')]
     [string]$Arch = '386',
-    [string]$Key = '',
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$ExtraArgs = @()
+    [string]$Key = ''
 )
+# Pass-through extra args (avoid ValueFromRemainingArguments, that triggers
+# a parameter binding error on empty invocation).
+$ExtraArgs = @($args)
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$psver = $PSVersionTable.PSVersion.Major
+if ($psver -ge 6) {
+    $console = [System.Console]
+    $console.OutputEncoding = [System.Text.Encoding]::UTF8
+}
 
 $ErrorActionPreference = 'Stop'
 
@@ -53,7 +51,7 @@ if (-not $goRoot) {
 $env:Path = "$goRoot\bin;$env:Path"
 $env:GOROOT = $goRoot
 
-# ---- 2. 项目根 + 构建输出 ----
+# ---- 2. project root + build output ----
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = $scriptDir
 Set-Location $projectRoot
@@ -64,7 +62,7 @@ if (-not (Test-Path $buildDir)) {
 }
 $bin = Join-Path $buildDir "smith_$Arch.exe"
 
-# ---- 3. 检查是否需要 rebuild ----
+# ---- 3. rebuild check ----
 $env:GOOS = 'windows'
 $env:GOARCH = $Arch
 $env:CGO_ENABLED = '0'
@@ -102,17 +100,23 @@ if ($needBuild) {
     Write-Host "[build] up to date, skip" -ForegroundColor DarkGray
 }
 
-# ---- 4. 准备启动参数 ----
-$args = @()
-if ($NoGui) { $args += '--no-gui' }
-if ($Key) { $args += '--key'; $args += $Key }
-if ($ExtraArgs) { $args += $ExtraArgs }
+# ---- 4. build arg list ----
+$argList = @()
+if ($NoGui) { $argList += '--no-gui' }
+if ($Key) { $argList += '--key'; $argList += $Key }
+if ($ExtraArgs) { $argList += $ExtraArgs }
 
-# ---- 5. 启动 ----
-Write-Host "[run] $bin $($args -join ' ')" -ForegroundColor Yellow
-$proc = Start-Process -FilePath $bin -ArgumentList $args -PassThru -NoNewWindow
+# ---- 5. launch ----
+# NOTE: Start-Process -ArgumentList @() throws "ParameterArgumentValidationError"
+# in PowerShell. Workaround: omit -ArgumentList when empty.
+Write-Host "[run] $bin $($argList -join ' ')" -ForegroundColor Yellow
+if ($argList.Count -eq 0) {
+    $proc = Start-Process -FilePath $bin -PassThru -NoNewWindow
+} else {
+    $proc = Start-Process -FilePath $bin -ArgumentList $argList -PassThru -NoNewWindow
+}
 Write-Host "[run] PID=$($proc.Id) started at $(Get-Date -Format 'HH:mm:ss')"
-Write-Host "[run] waiting for exit (Ctrl+C sends WM_CLOSE; smith 收到会 graceful 退出)..."
+Write-Host "[run] waiting for exit (Ctrl+C sends WM_CLOSE; smith exits gracefully)..."
 try {
     $proc.WaitForExit()
 } catch {
