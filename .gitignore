@@ -28,6 +28,11 @@ obj/
 dist/spike386/pe_spike_*.txt
 dist/spike64/pe_spike_*.txt
 
+# ---- owl.exe 运行时写的早期日志（用户拿来看 PE 启动失败原因的） ----
+# 不入仓；是本地诊断文件
+dist/owl.log
+.tmp/owl.log
+
 # ---- OS / editor temp ----
 Thumbs.db
 .DS_Store
