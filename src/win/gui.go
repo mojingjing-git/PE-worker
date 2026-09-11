@@ -591,6 +591,11 @@ func appendLog(wparam, lparam uintptr) {
 	if len(combined) > 0 {
 		pSendMessageW.Call(gLog, EM_REPLACESEL, 0, uintptr(unsafe.Pointer(&combined[0])))
 	}
+	// 防御性补 \r\n：logx 通常会加，但 loop / agent 内部有些路径可能漏（如 raw 字符串透传）。
+	// 补了不重复（已 \r\n 不动），避免 EDIT 多行渲染把两条 line 拼一起。
+	if len(lineBuf) < 2 || lineBuf[len(lineBuf)-2] != '\r' || lineBuf[len(lineBuf)-1] != '\n' {
+		pSendMessageW.Call(gLog, EM_REPLACESEL, 0, uintptr(unsafe.Pointer(&crlfPtr[0])))
+	}
 	pSendMessageW.Call(gLog, EM_SCROLLCARET, 0, 0)
 
 	// 4) think 段染色（yHeight 缩小 = 小一号）
@@ -599,6 +604,13 @@ func appendLog(wparam, lparam uintptr) {
 		styleThinkBlocks(lineBuf, len(prefixBuf)-1)
 	}
 }
+
+// crlfPtr 预计算的 "\r\n" 字符串指针，用于防御性补换行。
+// syscall.UTF16FromString 含 NUL，所以 len=3（\r \n NUL）。
+var crlfPtr = func() []uint16 {
+	buf, _ := syscall.UTF16FromString("\r\n")
+	return buf
+}()
 
 // thinkSpan 描述一个 think 段在 lineBuf 里的起止位置（uint16 单元数）。
 type thinkSpan struct{ Start, End int }
@@ -647,14 +659,13 @@ func findThinkBlocks(lineBuf []uint16) []thinkSpan {
 
 // newCharFormatSize 构造 CHARFORMATW byte buffer（92 字节），只设 cbSize/dwMask/yHeight。
 //
-// yHeight 单位 twips：1pt = 20 twips。EDIT 默认 ~9pt = 180；think 段用 140 = 7pt 显小。
-// CHARFORMATW 是 NT-based EDIT（user32）期望的 layout（Wine dlls/user32/edit.c 严格
-// 比较 cbSize == sizeof(CHARFORMATW) == 92，60 会被拒）。字段偏移：cbSize=0, dwMask=4,
-// yHeight=12 (cbSize+dwMask+DwEffects 之后)。其他字段默认 0 (dwEffects/yOffset/crTextColor/
-// bCharSet/bPitchAndFamily/szFaceName[64])。用 byte buffer + binary.LittleEndian 写，避开
+// yHeight 单位 twips：1pt = 20 twips。EDIT 默认 ~9pt = 180；think 段用 100 = 5pt 显小
+// （之前 7pt 差 2pt 视觉不明显）。
+// CHARFORMATW 是 NT-based EDIT（user32）期望的 layout。字段偏移：cbSize=0, dwMask=4,
+// yHeight=12。其他字段默认 0。用 byte buffer + binary.LittleEndian 写，避开
 // Go struct padding 跨平台大小不一致问题。
 func newCharFormatSize(yHeight int32) []byte {
-	const cfSize = 92 // CHARFORMATW 实际 layout size（user32 EDIT 接受值）
+	const cfSize = 92 // CHARFORMATW actual layout size
 	buf := make([]byte, cfSize)
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(cfSize)) // cbSize
 	binary.LittleEndian.PutUint32(buf[4:8], uint32(CFM_SIZE)) // dwMask = CFM_SIZE
@@ -671,12 +682,14 @@ func styleThinkBlocks(lineBuf []uint16, prefixLen int) {
 	if len(spans) == 0 {
 		return
 	}
-	cf := newCharFormatSize(140) // 7pt 字符高度
+	cf := newCharFormatSize(100) // 5pt 字符高度
 	for _, sp := range spans {
 		start := uintptr(prefixLen + sp.Start)
 		end := uintptr(prefixLen + sp.End)
 		pSendMessageW.Call(gLog, EM_SETSEL, start, end)
-		pSendMessageW.Call(gLog, EM_SETCHARFORMAT, SCF_SELECTION, uintptr(unsafe.Pointer(&cf[0])))
+		// 调试 trace: ret 非 0 = EDIT 拒收（cbSize 不对或字段错）
+		ret, _, _ := pSendMessageW.Call(gLog, EM_SETCHARFORMAT, SCF_SELECTION, uintptr(unsafe.Pointer(&cf[0])))
+		_ = ret // 留 trace hook，未来用 OutputDebugStringW 打
 	}
 	// 取消选择，移到末尾（避免滚动时高亮干扰）
 	pSendMessageW.Call(gLog, EM_SETSEL, ^uintptr(0), ^uintptr(0))

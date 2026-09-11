@@ -78,7 +78,9 @@ func SetOutput(w io.Writer) {
 // log 是核心：格式化 + 投递。
 func logf(level Level, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	line := levelPrefix[level] + " " + msg + "\r\n"
+	// level 由 gui.appendLog 拼 [HH:MM:SS] [L] 前缀用（wparam 传 level）；
+	// 这里不要再在 line 里加 [I] 字符串，否则 GUI 渲染会双重 level 标签。
+	line := msg + "\r\n"
 
 	mu.Lock()
 	h := hwnd

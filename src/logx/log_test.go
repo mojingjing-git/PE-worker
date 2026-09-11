@@ -48,8 +48,8 @@ func TestNoHWND_FallsBackToStderr(t *testing.T) {
 	if !errors.Is(err, ErrNoHWND) {
 		t.Errorf("期望 ErrNoHWND, 实际 %v", err)
 	}
-	if !strings.Contains(buf.String(), "[I] hello world") {
-		t.Errorf("buf 期望含 '[I] hello world', 实际 %q", buf.String())
+	if !strings.Contains(buf.String(), "hello world") {
+		t.Errorf("buf 期望含 'hello world', 实际 %q", buf.String())
 	}
 	if !strings.HasSuffix(buf.String(), "\r\n") {
 		t.Errorf("buf 应以 \\r\\n 结尾, 实际 %q", buf.String())
@@ -125,7 +125,7 @@ func TestError(t *testing.T) {
 	defer SetOutput(oldOut)
 
 	Error("test error: %d", 42)
-	if !strings.Contains(buf.String(), "[E] test error: 42") {
+	if !strings.Contains(buf.String(), "test error: 42") {
 		t.Errorf("buf = %q", buf.String())
 	}
 }
@@ -153,7 +153,7 @@ func TestAllLevels(t *testing.T) {
 	Error("e")
 
 	s := buf.String()
-	for _, prefix := range []string{"[D] d", "[I] i", "[W] w", "[E] e"} {
+	for _, prefix := range []string{"d", "i", "w", "e"} {
 		if !strings.Contains(s, prefix) {
 			t.Errorf("buf 应含 %q, 实际 %q", prefix, s)
 		}
