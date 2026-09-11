@@ -472,12 +472,10 @@ func appendLog(lparam uintptr) {
 	}
 	p := (*uint16)(unsafe.Pointer(lparam))
 	KeepAlive(p)
-	// 选末尾 (EM_SETSEL) + 替换 (EM_REPLACESEL)
-	// n = -1 表示"全选"
-	pSendMessageW.Call(gLog, EM_SETSEL, 0, ^uintptr(0))
+	// 移到末尾（EM_SETSEL start=end=-1 = 光标到文本末尾）
+	pSendMessageW.Call(gLog, EM_SETSEL, ^uintptr(0), ^uintptr(0))
+	// 在光标处追加（EM_REPLACESEL lparam = 字符串指针，nSel=0 = 不选中原内容）
 	pSendMessageW.Call(gLog, EM_REPLACESEL, 0, lparam)
-	// 自动滚动到底
-	n, _, _ := pSendMessageW.Call(gLog, WM_GETTEXTLENGTH, 0, 0)
-	pSendMessageW.Call(gLog, EM_SETSEL, n, n)
+	// 自动滚动到底（EM_SCROLLCARET 滚动到光标位置）
 	pSendMessageW.Call(gLog, EM_SCROLLCARET, 0, 0)
 }

@@ -89,7 +89,10 @@ func boot() int {
 	// --no-gui / --key / ini 已有 key 都不弹
 	// 用户勾选"保存" → 写 smith.ini（base/model/provider）+ smith.key
 	// 用户不勾选 → 全部仅在内存里，进程退出就丢（U 盘发给别人用就这模式）
-	if !*noGUI && cfgInstance.LLM.Key == "" && *keyFlag == "" {
+	//
+	// 走 keyfile 模式（KeyFile 配 + 文件可读）也不弹窗——让"安全模式"用户
+	// 配好后每次启动直接用。C-3 修复：避免 keyfile 用户每次都被弹窗骚扰。
+	if !*noGUI && !hasUsableKey(cfgInstance) && *keyFlag == "" {
 		_ = logx.Info("** ver calling PromptAPIKey")
 		key, prov, baseURL, model, save, ok, err := win.PromptAPIKey(
 			cfgInstance.LLM.Key,
@@ -157,12 +160,16 @@ func boot() int {
 	}
 
 	// [5] worker 编排
+	//
+	// 设计：worker 是常驻 goroutine，**不**响应外层 ctx 退出。
+	// Esc/Stop 只取消"当前一轮"的 runCtx（loop.Run），worker 继续等下条 user input。
+	// 进程退出靠主函数 return（或 GUI 关闭后 os.Exit），worker 自然被 GC 回收。
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	userInputCh := make(chan string, 8)
-	workerDone := make(chan struct{})
-	go runWorker(ctx, llmClient, cfgInstance, userInputCh, workerDone)
+	stopRunCh := make(chan struct{}, 1) // 缓冲 1：UI 线程连按 Stop 不丢信号
+	go runWorker(ctx, llmClient, cfgInstance, userInputCh, stopRunCh)
 
 	// [6] GUI 钩子
 	win.SetOnSend(func(text string) {
@@ -179,11 +186,13 @@ func boot() int {
 	})
 	win.SetOnStop(func() {
 		_ = logx.Warn("!! user abort (Esc/Stop)")
-		cancel()
-		// 重新建立 ctx 给下一轮用
-		ctx, cancel = context.WithCancel(context.Background())
-		_ = ctx
-		_ = cancel
+		// 通知 worker 取消**当前 runCtx**（loop.Run 用的）。不取消外层 ctx，
+		// worker 仍然存活，下条 user input 进来还能继续。
+		select {
+		case stopRunCh <- struct{}{}:
+		default:
+			// 已有一个 stop 信号在 queue 里，OK
+		}
 	})
 	// 主窗口就绪后把 hwnd 绑给 logx，否则日志走文件兜底，GUI 看不到任何输出
 	win.SetOnMainWindowCreated(func(hwnd uintptr) {
@@ -191,18 +200,13 @@ func boot() int {
 		_ = logx.Info("** ver logx bound hwnd=%d; 日志开始投递到 GUI", hwnd)
 	})
 
-	// [7] --no-gui smoke 模式：发一条 → 取消 → 等 worker 退出
+	// [7] --no-gui smoke 模式：发一条 → 等 worker 跑完 → 退出
 	if *noGUI {
 		_ = logx.Info("** ver no-gui mode; sending one test input then exit")
 		userInputCh <- "ver"
-		// 给 worker 5s 跑完；超时也走 cancel 路径
-		select {
-		case <-workerDone:
-		default:
-			time.Sleep(5 * time.Second)
-			cancel()
-			<-workerDone
-		}
+		// 给 worker 最多 5s 跑完（agent loop 内部会自己完成；超时也无所谓，进程直接退）
+		time.Sleep(5 * time.Second)
+		_ = logx.Info("** ver no-gui smoke done; exit 0")
 		return 0
 	}
 
@@ -212,16 +216,19 @@ func boot() int {
 	winCode := win.Run()
 	_ = logx.Info("** ver gui returned code=%d", winCode)
 
-	// [9] 通知 worker 退出
+	// [9] 通知 worker 退出（外层 ctx cancel → runWorker 主 select 命中 ctx.Done 退出）
 	cancel()
-	<-workerDone
 	return winCode
 }
 
 // runWorker 是单 goroutine 消费的 worker 循环。
 // 一个时刻只跑一个 loop.Run（顺序处理用户输入）。
-func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan string, done chan<- struct{}) {
-	defer close(done)
+//
+// **永不退出**：外层 ctx 仅用于整体进程退出时强制中断（GUI 关闭 → cancel()）。
+// 单轮中断走 stopRunCh：OnStop 往里塞信号，loop.Run 拿到 ctx.Done() 自动返回。
+// 这样保证：按一次 Esc/Stop 只杀当前一轮，**worker 仍存活**，下条 user input
+// 进来还能继续。避免 C-2 描述的"Stop 后 worker 永久死亡"问题。
+func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan string, stopRun <-chan struct{}) {
 	systemPrompt := agent.SystemPrompt(true)
 	maxTurns := c.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -236,10 +243,11 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 		},
 	}
 	for {
+		// 取 user input。优先响应外层 ctx（整体进程退出），但**不**靠它处理单轮中断
 		var userInput string
 		select {
 		case <-ctx.Done():
-			return
+			return // 整体进程退出（GUI 关闭后 defer cancel 触发）
 		case userInput = <-in:
 		}
 		// 没有 LLM 客户端：直接报"无法对话"
@@ -249,8 +257,20 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 		}
 		loop := agent.NewLoop(llm, toolCtx, maxTurns, systemPrompt)
 		runCtx, runCancel := context.WithCancel(ctx)
+		// 单轮中断：把 stopRunCh 转成 ctx.Done 信号接到 runCtx 上
+		// （loop.Run 只看 ctx.Done()，不会直接读 stopRunCh）
+		stopDone := make(chan struct{})
+		go func() {
+			select {
+			case <-stopRun:
+				runCancel()
+			case <-stopDone:
+				// 正常完成，stop 监控 goroutine 退出
+			}
+		}()
 		_, err := loop.Run(runCtx, userInput)
 		runCancel()
+		close(stopDone) // 释放 stop 监控 goroutine
 		if err != nil {
 			_ = logx.Error("!! loop: %v", err)
 		}
@@ -283,6 +303,25 @@ func exeDir() string {
 		exeDirValue = filepath.Dir(exe)
 	})
 	return exeDirValue
+}
+
+// hasUsableKey 判 cfg 是否已经有可用的 key：
+//   - c.LLM.Key != ""           → 直接有
+//   - c.LLM.KeyFile != "" 且文件可读 → 走 keyfile 模式
+// 不可读时返 false，buildLLM 阶段会报"read keyfile ...: no such file" 错。
+func hasUsableKey(c *cfg.Config) bool {
+	if c.LLM.Key != "" {
+		return true
+	}
+	if c.LLM.KeyFile == "" {
+		return false
+	}
+	path := c.LLM.KeyFile
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(exeDir(), path)
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // loadCfg 加载 ini，缺文件走默认（不致命）。

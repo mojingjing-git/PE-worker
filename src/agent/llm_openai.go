@@ -113,7 +113,14 @@ func (c *openAIClient) Chat(ctx context.Context, req Request) (Response, error) 
 	if err != nil {
 		return Response{}, fmt.Errorf("llm: openai: marshal request: %w", err)
 	}
-	httpReq, err := http.NewRequest("POST", strings.TrimRight(c.cfg.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
+	// base URL 自适配：用户已带 `/v1`（keydialog 默认 + 多数用户习惯）就不重复追加；
+	// 没带（自定义 MiniMax/MiniMax 等）就补 /v1 再拼 chat/completions。
+	// C-4 修复：避免 `https://api.openai.com/v1` + `/v1/chat/completions` = `/v1/v1/...` 404。
+	base := strings.TrimRight(c.cfg.BaseURL, "/")
+	if !strings.HasSuffix(base, "/v1") {
+		base += "/v1"
+	}
+	httpReq, err := http.NewRequest("POST", base+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Response{}, err
 	}

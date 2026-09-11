@@ -58,21 +58,47 @@ func ClipHistory(m []Message) []Message {
 		}
 	}
 	cut := len(m) - maxHistoryMessages
-	start := cut
-	// system 段不能切；如果 cut 落在 system 段里，把 start 推到 system 之后
-	if lastSystem >= 0 && start <= lastSystem {
-		start = lastSystem + 1
+	// 保留 system 段（m[0..lastSystem+1]）+ 最新消息，**总长度 ≤ maxHistoryMessages**。
+	// system 也算进 cap（system 也占 LLM context token）。
+	// C-5 修复前：直接 m[:start] 取最旧，方向反了，模型丢所有近期上下文。
+	// 修复后：保留 system + 最新 maxHistoryMessages-(system_len) 条。
+	head := m[:lastSystem+1] // 整个 system 段（lastSystem=-1 时为空切片）
+	systemLen := len(head)
+	// tail 最多 maxHistoryMessages - systemLen 条
+	maxTail := maxHistoryMessages - systemLen
+	if maxTail < 0 {
+		maxTail = 0
 	}
-	out := make([]Message, 0, len(m)-start)
-	out = append(out, m[:start]...)
-	// 配对修复：如果 out[0] 现在是 assistant，削到第一个 user/tool
-	if len(out) > 0 && out[0].Role == RoleAssistant {
-		for i := 1; i < len(out); i++ {
-			if out[i].Role == RoleUser || out[i].Role == RoleTool {
-				out = append([]Message{}, out[i:]...)
-				break
-			}
+	start := cut
+	if start < lastSystem+1 {
+		start = lastSystem + 1 // cut 落在 system 段时，从 system 之后开始
+	}
+	tail := m[start:]
+	if len(tail) > maxTail {
+		tail = tail[len(tail)-maxTail:] // 取最新 maxTail 条
+	}
+	out := make([]Message, 0, systemLen+len(tail))
+	out = append(out, head...)
+	out = append(out, tail...)
+	// 配对修复：如果 out 第一条非 system 消息是 assistant（说明我们切在了一对 user→assistant 中间），
+	// 削到第一个 user/tool，保证发到 LLM 的第一条非 system 消息必须是 user/tool
+	for i := 0; i < len(out); i++ {
+		if out[i].Role == RoleSystem {
+			continue
 		}
+		if out[i].Role == RoleAssistant {
+			// 找到 head 之后第一个 user/tool
+			for j := i + 1; j < len(out); j++ {
+				if out[j].Role == RoleUser || out[j].Role == RoleTool {
+					out = append([]Message{}, out[j:]...)
+					return out
+				}
+			}
+			// 全是 assistant（极端）：返回空
+			return []Message{}
+		}
+		// out[i] 是 user 或 tool，符合配对
+		return out
 	}
 	return out
 }
