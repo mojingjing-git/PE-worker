@@ -1,6 +1,7 @@
 # ---- Mavis runtime data（不提交，是 Mavis 自己的状态） ----
 .workbuddy/
 .tmp/
+dev/
 
 # ---- Build artifacts（除 dist/）----
 *.exe
