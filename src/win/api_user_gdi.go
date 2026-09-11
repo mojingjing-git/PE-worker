@@ -35,6 +35,7 @@ var (
 	pSetWindowPos     = user32.NewProc("SetWindowPos")
 	pEnableWindow     = user32.NewProc("EnableWindow")
 	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	pIsWindow            = user32.NewProc("IsWindow")
 
 	// 消息循环
 	pGetMessageW      = user32.NewProc("GetMessageW")

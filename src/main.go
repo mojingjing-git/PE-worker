@@ -120,6 +120,7 @@ func boot() int {
 			cfgInstance.LLM.Model = model
 		}
 		if save {
+			_ = logx.Info("** ver key dialog OK'd, save=true")
 			keyPath := filepath.Join(exeDir, "smith.key")
 			if err := os.WriteFile(keyPath, []byte(key+"\n"), 0600); err != nil {
 				_ = logx.Error("!! write %s: %v", keyPath, err)
@@ -138,6 +139,7 @@ func boot() int {
 			_ = logx.Info("** ver LLM config 仅当次有效（不落盘）")
 		}
 	}
+	_ = logx.Info("** ver post-dialog checkpoint; about to build LLM")
 
 	// [4] 构造 LLM 客户端（缺字段 → nil，loop 时再报错）
 	llmClient, err := buildLLM(cfgInstance)

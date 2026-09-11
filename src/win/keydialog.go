@@ -591,6 +591,15 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 	}
 
 	// Sub message loop
+	//
+	// 重要：DestroyWindow **send** WM_DESTROY 给 WndProc 时是**直接 send**（绕过 message
+	// queue），MSDN: "sends a WM_DESTROY message directly to the window procedure,
+	// bypassing the message queue"。所以不能用 "等到 WM_DESTROY" 作为退出条件——
+	// 等不到，会死锁在 GetMessage。
+	//
+	// 正确做法：每次 GetMessage 前后用 IsWindow(hwnd) 检查——窗口已销毁就 break。
+	// 配合 DestroyWindow 同步清理子窗口 + 我们自己的 pDestroyWindow(dlgHwnd) 调用
+	// 流程，dialog destroy 后下一轮循环时 IsWindow == 0，sub loop 立即退出。
 	var msg struct {
 		Hwnd     uintptr
 		Message  uint32
@@ -602,14 +611,18 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 		LPrivate uint32
 	}
 	for {
+		// 退出条件 1: dialog 窗口已不存在（DestroyWindow 完成后）
+		isWin, _, _ := pIsWindow.Call(dlgHwnd)
+		if isWin == 0 {
+			break
+		}
 		ret, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
 		if int32(ret) <= 0 {
 			break
 		}
-		// 收到 dialog 自己被 destroy 就不发了
-		if msg.Hwnd == dlgHwnd && msg.Message == WM_DESTROY {
-			pTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
-			pDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg)))
+		// 退出条件 2: 收到 WM_QUIT（极端情况，比如外层 win.Run 同时跑了——不会
+		// 在 PromptAPIKey 调用期间发生，但保险）
+		if msg.Message == WM_QUIT {
 			break
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
