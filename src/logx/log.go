@@ -100,7 +100,8 @@ func logf(level Level, format string, args ...any) error {
 		_, _ = fmt.Fprint(sink, line)
 		return fmt.Errorf("logx: win.Ptr: %w", err)
 	}
-	if _, err := win.PostMessageW(h, win.WM_LOG_LINE, 0, uintptr(unsafe.Pointer(lp))); err != nil {
+	// wparam = level (0/1/2/3 = Debug/Info/Warn/Error)，让 appendLog 拼 [HH:MM:SS] [L] 前缀
+	if _, err := win.PostMessageW(h, win.WM_LOG_LINE, uintptr(level), uintptr(unsafe.Pointer(lp))); err != nil {
 		_, _ = fmt.Fprint(sink, line) // PostMessage 失败也降级
 		return fmt.Errorf("logx: PostMessageW: %w", err)
 	}

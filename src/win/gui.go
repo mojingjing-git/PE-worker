@@ -16,6 +16,9 @@
 package win
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -28,11 +31,15 @@ const (
 	idSend     = 1003
 	idStop     = 1004
 	idStatus   = 1005
+	idLogCopy  = 1006
+	idLogClear = 1007
+	idLogSave  = 1008
 	idTimerTick = 1
 	idTimerQuit = 2
 
 	tickIntervalMs = 1000
 	logMaxChars    = 60000
+	logTruncateKeep = 30000 // 超过 logMaxChars 时保留后 30000 字符
 )
 
 // Win32 风格常量（msgs.go 集中了，这里留空）
@@ -48,6 +55,9 @@ var (
 	gSend   uintptr
 	gStop   uintptr
 	gStatus uintptr
+	gLogCopy  uintptr
+	gLogClear uintptr
+	gLogSave  uintptr
 )
 
 // WNDCLASSEXW —— 386=48 / amd64=80 (MEMORY §1 已声明: 这俩结构体都是 platform-equal)
@@ -276,8 +286,8 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		return 0
 
 	case WM_LOG_LINE:
-		// logx 投递的日志行（lparam = *uint16 指向 wstrKeep 里 UTF-16）
-		appendLog(lparam)
+		// logx 投递的日志行（lparam = *uint16 指向 wstrKeep 里 UTF-16；wparam = level）
+		appendLog(wparam, lparam)
 		return 0
 
 	case WM_COMMAND:
@@ -295,6 +305,19 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			if OnStop != nil {
 				OnStop()
 			}
+			return 0
+		case idLogCopy:
+			// 全选 + 复制到剪贴板 + 取消选择
+			pSendMessageW.Call(gLog, EM_SETSEL, 0, ^uintptr(0))
+			pSendMessageW.Call(gLog, WM_COPY, 0, 0)
+			pSendMessageW.Call(gLog, EM_SETSEL, ^uintptr(0), ^uintptr(0))
+			return 0
+		case idLogClear:
+			// 清空日志（用空串 WM_SETTEXT；utf16Ptr0 是 NUL 指针）
+			pSendMessageW.Call(gLog, WM_SETTEXT, 0, uintptr(unsafe.Pointer(utf16Ptr0())))
+			return 0
+		case idLogSave:
+			saveLogToFile()
 			return 0
 		}
 
@@ -340,7 +363,7 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 	case WM_USER_INPUT:
 		// 用户在输入区按 Enter 后的输入文本（lparam = *uint16）
 		// 实际投递到 agent loop 在 P1-10b 接入, 这里先贴日志
-		appendLog(lparam)
+		appendLog(0, lparam) // wparam=0 (Info 标签) for legacy WM_USER_INPUT
 		KeepAlive((*uint16)(unsafe.Pointer(lparam)))
 		return 0
 	}
@@ -434,15 +457,58 @@ func onCreate(hwnd uintptr) {
 	if gStatus != 0 {
 		pSendMessageW.Call(gStatus, WM_SETFONT, stockFont, 1)
 	}
+
+	// 日志工具按钮（Copy / Clear / Save）—— 状态栏右侧
+	clsB2 := clsB // BUTTON class 已存在
+	_ = clsB2
+	copyTxt, _ := Ptr("Copy")
+	defer Hold(copyTxt)
+	gLogCopy, _, _ = pCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(clsB)),
+		uintptr(unsafe.Pointer(copyTxt)),
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+		0, 0, 60, 22,
+		hwnd, uintptr(idLogCopy), hInst, 0,
+	)
+	if gLogCopy != 0 {
+		pSendMessageW.Call(gLogCopy, WM_SETFONT, stockFont, 1)
+	}
+	clearTxt, _ := Ptr("Clear")
+	defer Hold(clearTxt)
+	gLogClear, _, _ = pCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(clsB)),
+		uintptr(unsafe.Pointer(clearTxt)),
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+		0, 0, 60, 22,
+		hwnd, uintptr(idLogClear), hInst, 0,
+	)
+	if gLogClear != 0 {
+		pSendMessageW.Call(gLogClear, WM_SETFONT, stockFont, 1)
+	}
+	saveTxt, _ := Ptr("Save")
+	defer Hold(saveTxt)
+	gLogSave, _, _ = pCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(clsB)),
+		uintptr(unsafe.Pointer(saveTxt)),
+		WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+		0, 0, 60, 22,
+		hwnd, uintptr(idLogSave), hInst, 0,
+	)
+	if gLogSave != 0 {
+		pSendMessageW.Call(gLogSave, WM_SETFONT, stockFont, 1)
+	}
 }
 
-// onSize 重排子控件（log 占中, input + send + stop 占底部, status 占底底）
+// onSize 重排子控件（log 占中, input + send + stop 占底部, status + 3 个 log 按钮占底底）
 func onSize(hwnd uintptr, w, h uint32) {
 	if gLog == 0 {
 		return
 	}
-	// 留 24 给 input, 20 给 status
-	logH := uintptr(int32(h) - 24 - 20)
+	// 留 24 给 input, 24 给 status+3 按钮（多 4 像素让按钮好看）
+	logH := uintptr(int32(h) - 24 - 24)
 	if int32(logH) < 0 {
 		logH = 0
 	}
@@ -452,7 +518,14 @@ func onSize(hwnd uintptr, w, h uint32) {
 	pMoveWindow.Call(gSend, uintptr(int32(w)-130), logH, 60, 24, 1)
 	pMoveWindow.Call(gStop, uintptr(int32(w)-70), logH, 70, 24, 1)
 
-	pMoveWindow.Call(gStatus, 0, logH+24, uintptr(w), 20, 1)
+	// 状态栏：左侧 status text 占 (w - 180)，右侧 3 个按钮各 60
+	const btnW = 60
+	const btnGap = 0
+	const btnsTotalW = btnW*3 + btnGap*2 // 180
+	pMoveWindow.Call(gStatus, 0, logH+24, uintptr(int32(w)-btnsTotalW), 22, 1)
+	pMoveWindow.Call(gLogCopy, uintptr(int32(w)-btnsTotalW), logH+24, btnW, 22, 1)
+	pMoveWindow.Call(gLogClear, uintptr(int32(w)-btnsTotalW+btnW+btnGap), logH+24, btnW, 22, 1)
+	pMoveWindow.Call(gLogSave, uintptr(int32(w)-btnsTotalW+2*(btnW+btnGap)), logH+24, btnW, 22, 1)
 }
 
 // onTick 1 Hz 心跳, 更新 status bar (tick 计数)。
@@ -466,16 +539,133 @@ func onTick(_ uintptr) {
 }
 
 // appendLog 把 lparam 指向的 UTF-16 字符串贴到日志区 (v1-M1 持引用)。
-func appendLog(lparam uintptr) {
+//
+// wparam = log level (0=Debug / 1=Info / 2=Warn / 3=Error)；暂未染色（prepend 时间戳
+// 已够定位，颜色留给后续 EM_SETCHARFORMAT commit）。
+//
+// 行为：
+//   1. 检查 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep（B 修复 M-3）
+//   2. prepend `[HH:MM:SS] ` 时间戳（D：方便定位日志时间）
+//   3. EM_SETSEL(-1,-1) + EM_REPLACESEL 追加 + EM_SCROLLCARET 滚动
+func appendLog(wparam, lparam uintptr) {
 	if gLog == 0 || lparam == 0 {
 		return
 	}
 	p := (*uint16)(unsafe.Pointer(lparam))
 	KeepAlive(p)
-	// 移到末尾（EM_SETSEL start=end=-1 = 光标到文本末尾）
+
+	// 1) B 修复：logMaxChars 截断（M-3 实现）
+	truncateLogIfNeeded()
+
+	// 2) D 修复：prepend 时间戳 + level 标签
+	prefix := formatLogPrefix(int32(wparam))
+
+	// 3) 拼 prefix + line 一次投（避免 2 次 REPLACESEL 触发 2 次重绘）
+	prefixBuf, _ := syscall.UTF16FromString(prefix)
+	// lineBuf: 原 line 的 UTF-16（需要算长度）
+	lineLen := 0
+	for i := 0; ; i++ {
+		c := *(*uint16)(unsafe.Pointer(lparam + uintptr(i)*2))
+		if c == 0 {
+			lineLen = i
+			break
+		}
+	}
+	lineBuf := make([]uint16, lineLen)
+	for i := 0; i < lineLen; i++ {
+		lineBuf[i] = *(*uint16)(unsafe.Pointer(lparam + uintptr(i)*2))
+	}
+	combined := make([]uint16, 0, len(prefixBuf)+len(lineBuf))
+	combined = append(combined, prefixBuf...)
+	combined = append(combined, lineBuf...)
+
+	// 移到末尾 + 追加
 	pSendMessageW.Call(gLog, EM_SETSEL, ^uintptr(0), ^uintptr(0))
-	// 在光标处追加（EM_REPLACESEL lparam = 字符串指针，nSel=0 = 不选中原内容）
-	pSendMessageW.Call(gLog, EM_REPLACESEL, 0, lparam)
-	// 自动滚动到底（EM_SCROLLCARET 滚动到光标位置）
+	if len(combined) > 0 {
+		pSendMessageW.Call(gLog, EM_REPLACESEL, 0, uintptr(unsafe.Pointer(&combined[0])))
+	}
 	pSendMessageW.Call(gLog, EM_SCROLLCARET, 0, 0)
+}
+
+// truncateLogIfNeeded 检查日志 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep。
+// EM_SETSEL + WM_CLEAR 删选中内容；删完光标会乱，appendLog 后续的 EM_SETSEL(-1,-1) 会重置。
+func truncateLogIfNeeded() {
+	n, _, _ := pSendMessageW.Call(gLog, WM_GETTEXTLENGTH, 0, 0)
+	if uint32(n) <= logMaxChars {
+		return
+	}
+	cut := uint32(n) - logTruncateKeep
+	pSendMessageW.Call(gLog, EM_SETSEL, 0, uintptr(cut))
+	pSendMessageW.Call(gLog, WM_CLEAR, 0, 0)
+}
+
+// formatLogPrefix 拼 `[HH:MM:SS] [L] ` 前缀（L = D/I/W/E）。
+// 用 GetLocalTime（kernel32）拿本地时间。
+func formatLogPrefix(level int32) string {
+	var st struct {
+		Year         uint16
+		Month        uint16
+		Dow          uint16
+		Day          uint16
+		Hour         uint16
+		Minute       uint16
+		Second       uint16
+		Milliseconds uint16
+	}
+	pGetLocalTime.Call(uintptr(unsafe.Pointer(&st)))
+	var label byte
+	switch level {
+	case 0:
+		label = 'D'
+	case 1:
+		label = 'I'
+	case 2:
+		label = 'W'
+	case 3:
+		label = 'E'
+	default:
+		label = '?'
+	}
+	return fmt.Sprintf("[%02d:%02d:%02d] [%c] ", st.Hour, st.Minute, st.Second, label)
+}
+
+// saveLogToFile 把日志 buffer 全部 dump 到 exeDir/smith.session.log。
+// 中文路径 OK（os.WriteFile 走 UTF-8）。GUI 在 UI 线程跑（不阻塞）。
+// 状态栏显示结果（win 包不 import logx，单向依赖 logx→win；状态栏是 UI 自反馈）。
+func saveLogToFile() {
+	n, _, _ := pSendMessageW.Call(gLog, WM_GETTEXTLENGTH, 0, 0)
+	if n == 0 {
+		setStatusText("log empty, nothing to save")
+		return
+	}
+	buf := make([]uint16, n+1)
+	pSendMessageW.Call(gLog, WM_GETTEXT, uintptr(len(buf)), uintptr(unsafe.Pointer(&buf[0])))
+	// 找 NUL 截断
+	length := 0
+	for i, c := range buf {
+		if c == 0 {
+			length = i
+			break
+		}
+		length = i + 1
+	}
+	s := string(utf16ToRunes(buf[:length]))
+	exe, _ := os.Executable()
+	path := filepath.Join(filepath.Dir(exe), "smith.session.log")
+	if err := os.WriteFile(path, []byte(s), 0644); err != nil {
+		setStatusText(fmt.Sprintf("save failed: %v", err))
+		return
+	}
+	setStatusText(fmt.Sprintf("saved %d chars to %s", length, filepath.Base(path)))
+}
+
+// setStatusText 设置状态栏文字。状态栏没创建时静默跳过。
+func setStatusText(s string) {
+	if gStatus == 0 {
+		return
+	}
+	buf, _ := syscall.UTF16FromString(s)
+	if len(buf) > 0 {
+		pSendMessageW.Call(gStatus, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&buf[0])))
+	}
 }
