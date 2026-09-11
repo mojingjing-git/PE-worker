@@ -85,6 +85,37 @@ func boot() int {
 		_ = logx.Warn("!! --key 覆盖了 ini；命令行明文，tasklist 可见")
 	}
 
+	// [3.5] 首次运行 / 缺 key → 弹输入对话框（仅 GUI 模式）
+	// --no-gui / --key / ini 已有 key 都不弹
+	// 用户勾选"保存" → 写 smith.key（不在 ini 留明文，更干净）
+	// 用户不勾选 → key 只在内存里，进程退出就丢（U 盘发给别人用就这模式）
+	if !*noGUI && cfgInstance.LLM.Key == "" && *keyFlag == "" {
+		key, save, ok, err := win.PromptAPIKey(cfgInstance.LLM.Key)
+		if err != nil {
+			_ = logx.Error("!! key dialog: %v", err)
+			return 1
+		}
+		if !ok {
+			_ = logx.Warn("!! key dialog cancelled; 退出")
+			return 0
+		}
+		if key == "" {
+			_ = logx.Warn("!! key dialog OK but empty; 退出")
+			return 0
+		}
+		cfgInstance.LLM.Key = key
+		if save {
+			keyPath := filepath.Join(exeDir, "smith.key")
+			if err := os.WriteFile(keyPath, []byte(key+"\n"), 0600); err != nil {
+				_ = logx.Error("!! write %s: %v", keyPath, err)
+				return 1
+			}
+			_ = logx.Info("** ver key saved %s (this session 也要用)", keyPath)
+		} else {
+			_ = logx.Info("** ver key 仅当次有效（不落盘）")
+		}
+	}
+
 	// [4] 构造 LLM 客户端（缺字段 → nil，loop 时再报错）
 	llmClient, err := buildLLM(cfgInstance)
 	if err != nil {

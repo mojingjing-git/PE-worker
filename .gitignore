@@ -34,6 +34,13 @@ dist/spike64/pe_spike_*.txt
 dist/smith.log
 .tmp/smith.log
 
+# ---- API key 文件（首次运行 dialog 勾选"保存到磁盘"会创建） ----
+# 不入仓；是用户隐私 + 部署到别人机器的 U 盘不带这文件（dialog 弹回输入）
+smith.key
+smith.ini
+.tmp/smith.key
+.tmp/smith.ini
+
 # ---- OS / editor temp ----
 Thumbs.db
 .DS_Store

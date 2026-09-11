@@ -92,6 +92,16 @@ timeout = 120
 
 `smith.key` 放同目录，单行 API key。
 
+**首次运行体验**（PLAN §0.6 A5）：
+
+- 没 key 也没 smith.ini → 启动时弹 modal 对话框
+- 输入 key + 勾选"保存到磁盘" → 写 `smith.key`（明文，gitignore）
+- 输入 key + **不勾选** → key 仅当次有效，进程退出就丢（**U 盘发给别人用**就这模式）
+- 已有 key 的话对话框预填，点 OK 直接覆盖/保留
+- Esc / 关窗 = 取消 = 进程退出（明确"没配好就跑不动"）
+
+CLI `--key` 跳过 dialog；`--no-gui` 也不弹。
+
 ### 跑
 
 ```cmd

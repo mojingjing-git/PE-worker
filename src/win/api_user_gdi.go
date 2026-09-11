@@ -33,6 +33,8 @@ var (
 	pSetFocus         = user32.NewProc("SetFocus")
 	pGetDlgItem       = user32.NewProc("GetDlgItem")
 	pSetWindowPos     = user32.NewProc("SetWindowPos")
+	pEnableWindow     = user32.NewProc("EnableWindow")
+	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 
 	// 消息循环
 	pGetMessageW      = user32.NewProc("GetMessageW")
