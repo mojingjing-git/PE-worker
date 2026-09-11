@@ -1,0 +1,177 @@
+<!-- spike/hta/app.hta
+     IE8 兼容 HTA 前端（ES3 语法、ActiveXObject XHR、setTimeout 轮询）。
+     __ORIGIN__ 由 server 在 GET / 时替换为真实 http://127.0.0.1:PORT。
+     __TEMP__   由 server 在 GET / 时替换为运行时临时目录（os.TempDir()，
+                 PE 上为 X:\Windows\Temp，开发机为 %TEMP%），避免 RESULT_PATH
+                 硬编码用户目录导致 PE 上路径不存在。
+     方案 B（file://）下 server 把渲染后的文件写到 %TEMP%/hta_spike_app.hta，
+     mshta 用 file:// 打开，__ORIGIN__/__TEMP__ 同样已被填充。
+-->
+<HTA:APPLICATION
+  ID="htaSpike"
+  APPLICATIONNAME="HTA Spike"
+  BORDER="thin"
+  CAPTION="yes"
+  SHOWINTASKBAR="yes"
+  SINGLEINSTANCE="no"
+  WINDOWSTATE="normal"
+  SCROLL="auto"
+/>
+<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="IE=8" />
+<title>HTA Spike</title>
+<style>
+  body { font-family: Tahoma, sans-serif; font-size: 12px; padding: 12px; }
+  #log { white-space: pre-wrap; border: 1px solid #999; padding: 6px; height: 160px; overflow: auto; }
+  h3 { margin: 4px 0; }
+</style>
+<script language="javascript">
+// ---- IE8/ES3 安全写法：var、function、attachEvent，无 ES5 ----
+var ORIGIN = "__ORIGIN__";
+// 运行时临时目录（server 注入，PE 上 = X:\Windows\Temp），结果文件落在里面。
+// 不再硬编码开发机用户目录 —— 否则 PE 上该路径不存在导致 FSO 写失败。
+var RESULT_PATH = "__TEMP__" + "\\hta_spike_result.txt";
+
+var t0 = (new Date()).getTime();
+var msgMs = 0, evtMs = 0;
+var fsoOk = false, fsoErr = "", lastXhrErr = "";
+var mode = "http";
+if (document.URL.indexOf("file:") === 0) { mode = "file"; }
+
+function nowMs() { return (new Date()).getTime(); }
+
+function newXHR() {
+  try { return new ActiveXObject("Msxml2.XMLHTTP.6.0"); } catch (e) {}
+  try { return new ActiveXObject("Microsoft.XMLHTTP"); } catch (e) {}
+  try { return new XMLHttpRequest(); } catch (e) {}
+  return null;
+}
+
+function logLine(s) {
+  var el = document.getElementById("log");
+  el.innerHTML = el.innerHTML + s + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+
+function postJSON(url, obj, cb) {
+  var x = newXHR();
+  if (!x) { lastXhrErr = "no-xhr"; cb("no-xhr"); return; }
+  x.open("POST", url, true);
+  x.setRequestHeader("Content-Type", "application/json");
+  x.onreadystatechange = function () {
+    if (x.readyState === 4) {
+      if (x.status === 0 && x.responseText === "") {
+        lastXhrErr = "blocked-or-aborted";
+      }
+      cb(null, x.status, x.responseText);
+    }
+  };
+  try { x.send(JSON.stringify(obj)); }
+  catch (e) { lastXhrErr = "" + e; cb("" + e); }
+}
+
+function getJSON(url, cb) {
+  var x = newXHR();
+  if (!x) { lastXhrErr = "no-xhr"; cb("no-xhr"); return; }
+  x.open("GET", url, true);
+  x.onreadystatechange = function () {
+    if (x.readyState === 4) {
+      if (x.status === 0 && x.responseText === "") {
+        lastXhrErr = "blocked-or-aborted";
+      }
+      cb(null, x.status, x.responseText);
+    }
+  };
+  try { x.send(null); }
+  catch (e) { lastXhrErr = "" + e; cb("" + e); }
+}
+
+function finish() {
+  var ua = navigator.userAgent;
+  var ok = (msgMs > 0) && (evtMs > 0) && (lastXhrErr === "");
+
+  // 先真实尝试 FSO 写，得到准确的 fsoOk/fsoErr（避免先快照后写的误报）
+  var fsoOkLocal = false, fsoErrLocal = "";
+  try {
+    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    var ts = fso.CreateTextFile(RESULT_PATH, true);
+    ts.WriteLine("probe");
+    ts.Close();
+    fsoOkLocal = true;
+  } catch (e) {
+    fsoErrLocal = "" + e;
+  }
+
+  var payload = {
+    success: ok,
+    mode: mode,
+    msgMs: msgMs,
+    evtMs: evtMs,
+    fsoOk: fsoOkLocal,
+    fsoErr: fsoErrLocal,
+    xhrErr: lastXhrErr,
+    ua: ua,
+    totalMs: nowMs() - t0
+  };
+  logLine("result: " + JSON.stringify(payload));
+
+  if (fsoOkLocal) {
+    // FSO 可用：直接写最终结果
+    try {
+      var fso2 = new ActiveXObject("Scripting.FileSystemObject");
+      var ts2 = fso2.CreateTextFile(RESULT_PATH, true);
+      ts2.WriteLine(JSON.stringify(payload));
+      ts2.Close();
+      logLine("FSO write OK");
+    } catch (e) {
+      fsoOkLocal = false;
+      fsoErrLocal = "" + e;
+      payload.fsoOk = false;
+      payload.fsoErr = fsoErrLocal;
+      postJSON(ORIGIN + "/api/result", payload, function () {});
+    }
+  } else {
+    // FSO 被区域策略拦截：回退 POST 给 server 落盘
+    logLine("FSO blocked: " + fsoErrLocal);
+    postJSON(ORIGIN + "/api/result", payload, function () {});
+  }
+  setTimeout(function () { window.close(); }, 300);
+}
+
+function startEvents() {
+  var te = nowMs();
+  getJSON(ORIGIN + "/api/events", function (err, status, text) {
+    evtMs = nowMs() - te;
+    logLine("events done (" + evtMs + "ms) status=" + status);
+    finish();
+  });
+}
+
+function startMsg() {
+  var tm = nowMs();
+  postJSON(ORIGIN + "/api/message", { text: "ping" }, function (err, status, text) {
+    msgMs = nowMs() - tm;
+    logLine("message done (" + msgMs + "ms) status=" + status + " body=" + text);
+    startEvents();
+  });
+}
+
+function boot() {
+  logLine("mode=" + mode + " origin=" + ORIGIN);
+  startMsg();
+}
+
+// IE8: attachEvent
+if (window.attachEvent) {
+  window.attachEvent("onload", boot);
+} else {
+  window.onload = boot;
+}
+</script>
+</head>
+<body>
+  <h3>HTA Spike (IE8 engine)</h3>
+  <div id="log">booting...\n</div>
+</body>
+</html>
