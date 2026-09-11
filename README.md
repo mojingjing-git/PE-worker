@@ -186,10 +186,17 @@ peagent/
 
 - [x] **Phase 0** —— 技术预研（5 个 spike 程序 + 3 轮代码审计 + 25 个问题修复）
 - [x] **Phase 1** —— 骨架打通（GUI + exec + 14 工具 + LLM 适配 + loop + e2e 测试）
-- [ ] **Phase 2** —— agent loop 真实跑通（mock 已验，待真 API 验）
-- [ ] **Phase 3** —— 14 工具在 PE 里手测（需要真 PE 镜像）
-- [ ] **Phase 4** —— screenshot + 视觉
-- [ ] **Phase 5** —— 加固与分发
+- [x] **P2-0** —— 5 CRITICAL bug 修复（verifier 复核全 CONFIRMED）
+- [x] **P2-1** —— GUI 日志优化（word-wrap + 60000 截断 + Copy/Clear/Save 按钮 + 时间戳）
+- [x] **P2-2** —— think 块单独缩字号（EM_SETCHARFORMAT 5pt）
+- [x] **P2-4** —— 排版修复（双重 [I] 去除 + 防御性 \r\n）
+- [ ] **Batch 1** —— LLM 适配层 9 条（OEM→UTF8 / 重试 / CheckRedirect / image wire / think 剥离 等）
+- [ ] **Batch 2** —— Win 互操作 + Job 杀树接入（150+ 行大改 + spike 回归）
+- [ ] **Batch 3** —— GUI 交互 5 条（**同 PR atomic**）
+- [ ] **Batch 4** —— 杂项 / 安全 / 健壮（含 L-2 kill 工具）
+- [ ] **真机 PE 验收**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）
+
+**详细变更**：见 [CHANGELOG.md](./CHANGELOG.md) | **待办计划**：见 [`.workbuddy/audit/2026-09-11-P1-audit.md`](./.workbuddy/audit/2026-09-11-P1-audit.md) §五 整改版
 
 ---
 
