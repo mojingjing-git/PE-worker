@@ -145,6 +145,66 @@ func Run() int {
 	return 0
 }
 
+// OnSend / OnStop 是 main.go 设进来的回调，gui 线程调它们。
+//
+// 这两个全局 func var 不并发访问（wndProc 在 UI 线程），但 main.go 在
+// 启动早期 Set，UI 起来前已就位 → 不需要 atomic。
+var (
+	OnSend func(text string) // 用户点 Send 按钮 / 按 Enter
+	OnStop func()            // 用户点 Stop 按钮 / 按 Esc
+)
+
+// SetOnSend 设 Send 回调。返回时**立即生效**（wndProc 下一条 WM_COMMAND 就会调）。
+func SetOnSend(f func(text string)) { OnSend = f }
+
+// SetOnStop 设 Stop 回调。
+func SetOnStop(f func()) { OnStop = f }
+
+// readInputText 拿输入框当前文本（WM_GETTEXT）。返回空串就是空。
+// 注意：返回的 Go string 引用底层 UTF-16 buffer 是 win 自己的 strKeep，
+// 所以这里复制一份给 main.go 用 —— 跨线程传 string 必须复制（PLAN §0 决策：
+// 字符串所有权归 UI 线程）。
+func readInputText() string {
+	if gInput == 0 {
+		return ""
+	}
+	// 先 GETTEXTLENGTH 拿字符数
+	n, _, _ := pSendMessageW.Call(gInput, WM_GETTEXTLENGTH, 0, 0)
+	// WM_GETTEXT 会写 '\0' 终止；预留 1 给 NUL
+	buf := make([]uint16, n+1)
+	pSendMessageW.Call(gInput, WM_GETTEXT, uintptr(len(buf)), uintptr(unsafe.Pointer(&buf[0])))
+	// 找 NUL 截断
+	for i, c := range buf {
+		if c == 0 {
+			return string(utf16ToRunes(buf[:i]))
+		}
+	}
+	return string(utf16ToRunes(buf))
+}
+
+// utf16ToRunes 把 []uint16 UTF-16 (无 surrogate 拼接, 因为是 EDIT 控件文本)
+// 转成 []rune 给 string() 用。
+func utf16ToRunes(b []uint16) []rune {
+	out := make([]rune, 0, len(b))
+	for _, c := range b {
+		out = append(out, rune(c))
+	}
+	return out
+}
+
+// clearInput 清空输入框（Send 后）。
+func clearInput() {
+	if gInput != 0 {
+		pSendMessageW.Call(gInput, WM_SETTEXT, 0, uintptr(unsafe.Pointer(utf16Ptr0())))
+	}
+}
+
+// utf16Ptr0 返一个指向空 NUL 的 *uint16（WM_SETTEXT 用来清空）。
+func utf16Ptr0() *uint16 {
+	var zero uint16
+	return &zero
+}
+
 // wndProc 是窗口消息回调（**不能**做阻塞操作）。
 // 注意：syscall.NewCallback 把它转成 C 可调的函数指针，
 // Go runtime 在这个线程上跑（**已** LockOSThread）。
@@ -162,6 +222,44 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		// logx 投递的日志行（lparam = *uint16 指向 wstrKeep 里 UTF-16）
 		appendLog(lparam)
 		return 0
+
+	case WM_COMMAND:
+		// HIWORD(wparam) = notification; LOWORD(wparam) = control id
+		ctrlID := uint16(uint32(wparam) & 0xFFFF)
+		switch ctrlID {
+		case idSend:
+			if OnSend != nil {
+				txt := readInputText()
+				clearInput()
+				OnSend(txt)
+			}
+			return 0
+		case idStop:
+			if OnStop != nil {
+				OnStop()
+			}
+			return 0
+		}
+
+	case WM_KEYDOWN:
+		// Esc 触发 Stop（v0 决策：Esc 杀整棵树）
+		if wparam == VK_ESCAPE {
+			if OnStop != nil {
+				OnStop()
+			}
+			return 0
+		}
+		// Enter 在输入框时也触发 Send（输入框 focus 时）
+		if wparam == VK_RETURN {
+			if OnSend != nil {
+				txt := readInputText()
+				if txt != "" {
+					clearInput()
+					OnSend(txt)
+				}
+			}
+			return 0
+		}
 
 	case WM_TIMER:
 		switch wparam {

@@ -48,13 +48,17 @@ func PostMessageW(hwnd uintptr, msg uint32, wparam, lparam uintptr) (uintptr, er
 
 // 通用 Win32 消息 ID（来自 WINUSER.H，gui.go 用）
 const (
-	WM_CREATE  = 0x0001
-	WM_DESTROY = 0x0002
-	WM_CLOSE   = 0x0010
-	WM_SIZE    = 0x0005
-	WM_TIMER   = 0x0118
-	WM_PAINT   = 0x000F
-	WM_SETFONT = 0x0030
+	WM_CREATE   = 0x0001
+	WM_DESTROY  = 0x0002
+	WM_CLOSE    = 0x0010
+	WM_SIZE     = 0x0005
+	WM_TIMER    = 0x0118
+	WM_PAINT    = 0x000F
+	WM_SETFONT  = 0x0030
+	WM_COMMAND  = 0x0111
+	WM_KEYDOWN  = 0x0100
+	WM_GETTEXT  = 0x000D
+	WM_SETTEXT  = 0x000C
 	WM_GETTEXTLENGTH = 0x000E
 
 	// EDIT 控件消息
@@ -89,6 +93,10 @@ const (
 
 	// IDC_ARROW
 	IDC_ARROW = 32512
+
+	// Virtual key codes（gui.go 的 WM_KEYDOWN 用）
+	VK_ESCAPE = 0x1B
+	VK_RETURN = 0x0D
 
 	// CW_USEDEFAULT (作 int32 负值传入 → 强转 int32 当 uintptr)
 	CW_USEDEFAULT = ^uintptr(0) // 0xFFFFFFFF...

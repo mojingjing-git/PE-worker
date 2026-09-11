@@ -44,12 +44,13 @@ type Config struct {
 
 // LLMConfig 是 [llm] 段。
 type LLMConfig struct {
-	Base    string
-	Model   string
-	KeyFile string
-	Key     string
-	Vision  bool
-	Timeout int
+	Base     string
+	Model    string
+	KeyFile  string
+	Key      string
+	Provider string // "openai" | "anthropic" | "deepseek"；空 = openai
+	Vision   bool
+	Timeout  int
 }
 
 // AgentConfig 是 [agent] 段。
@@ -73,6 +74,11 @@ var (
 	ErrInvalidBool  = errors.New("cfg: invalid bool")
 	ErrInvalidInt   = errors.New("cfg: invalid int")
 )
+
+// Default 返一个默认 cfg（无 ini 路径）。主程序在找不到 ini 时用它启动。
+func Default() *Config {
+	return defaultConfig()
+}
 
 // Load 从 path 加载 INI 文件并解析。文件不存在返 ErrFileNotFound。
 // 任何 [section] 缺失 = 用该段默认值。
@@ -163,6 +169,8 @@ func setLLM(c *LLMConfig, key, val string) error {
 		c.KeyFile = val
 	case "key":
 		c.Key = val
+	case "provider":
+		c.Provider = strings.ToLower(val)
 	case "vision":
 		b, err := parseBool(val)
 		if err != nil {
