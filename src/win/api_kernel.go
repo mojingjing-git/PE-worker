@@ -41,6 +41,12 @@ var (
 	pProcess32NextW           = kernel32.NewProc("Process32NextW")
 	pSleep                    = kernel32.NewProc("Sleep")
 	pGetExitCodeThread        = kernel32.NewProc("GetExitCodeThread")
+	// Job Object API（job.go 用）
+	pCreateJobObjectW         = kernel32.NewProc("CreateJobObjectW")
+	pSetInformationJobObject  = kernel32.NewProc("SetInformationJobObject")
+	pAssignProcessToJobObject = kernel32.NewProc("AssignProcessToJobObject")
+	pTerminateJobObject       = kernel32.NewProc("TerminateJobObject")
+	pIsProcessInJob           = kernel32.NewProc("IsProcessInJob")
 )
 
 // ntdll procs

@@ -107,10 +107,17 @@ func Hold(p *uint16) {
 // KeepAlive 是 runtime.KeepAlive 的便利包装，让代码 grep "win.KeepAlive"
 // 就能看到所有需要保活的点。
 //
+// 接 interface{} 接受任意类型：
+//   - *uint16：UTF16PtrFromString 的 *uint16 已 append 到 wstrKeep 保活，
+//     这里 KeepAlive(*uint16) 让调用方显式声明"在我这条语句之前 GC 别回收它"。
+//   - []byte：手工字节缓冲（如 buildJobExtLimitInfo 的 buf），
+//     KeepAlive(buf) 让 buf 跨 .Call 调用活着。
+//   - *T：任意类型，runtime.KeepAlive 接 interface{}，等效。
+//
 // 用法：
 //
 //	defer win.KeepAlive(p)              // p 至少活到本函数返回
 //	win.KeepAlive(p); pSend.Call()      // p 至少活到 Call 返回
-func KeepAlive(p *uint16) {
-	runtime.KeepAlive(p)
+func KeepAlive(x interface{}) {
+	runtime.KeepAlive(x)
 }
