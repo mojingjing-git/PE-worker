@@ -115,6 +115,14 @@ func Run() int {
 	}
 	gHwnd = hwnd
 
+	// 把窗口强制放到**主显示器**的工作区左上角。
+	// 不做这一步的话，在装了多个虚拟显示适配器（MuMu / Todesk / GameViewer /
+	// Meta VR 等）的开发机上，OS 可能把窗口分配到一个没有真屏的虚拟适配器
+	// → 渲染到不存在的 surface → 看起来"白屏"。
+	// SPI_GETWORKAREA 拿主显示器的可用工作区（去掉任务栏），(0,0) 相对工作区原点
+	// 即"任务栏上面那一行的左上角"，最稳的位置。
+	forceOnPrimaryMonitor(hwnd)
+
 	// 显式 ShowWindow + UpdateWindow (CreateWindowEx 已经给 wsVisible, 但保险)
 	pShowWindow.Call(hwnd, SW_SHOWNORMAL)
 	pUpdateWindow.Call(hwnd)
@@ -203,6 +211,36 @@ func clearInput() {
 func utf16Ptr0() *uint16 {
 	var zero uint16
 	return &zero
+}
+
+// forceOnPrimaryMonitor 把窗口强制放到主显示器工作区左上角。
+//
+// 背景：开发机装了多个虚拟显示适配器（MuMu / Todesk / GameViewer / Meta VR
+// 等），它们没接真屏但还占显示位。CW_USEDEFAULT 让 OS 自己选显示器 → 经常
+// 选到虚拟适配器 → GDI 渲染到不存在的 surface → "白屏"。
+//
+// 用 SPI_GETWORKAREA 拿主显示器的工作区（去掉任务栏），(0,0) 即工作区原点。
+// SetWindowPos 的 SWP_NOSIZE 保留窗口尺寸，SWP_NOZORDER 不抢 z-order。
+//
+// 失败时静默 fallback：原 CW_USEDEFAULT 位置（多显示器环境下也不一定白屏，
+// 真 PE 里没有这些虚拟适配器，强行 fallback 反而稳）。
+func forceOnPrimaryMonitor(hwnd uintptr) {
+	var workArea struct{ Left, Top, Right, Bottom int32 }
+	r, _, _ := pSystemParametersInfoW.Call(
+		SPI_GETWORKAREA,
+		0,
+		uintptr(unsafe.Pointer(&workArea)),
+		0,
+	)
+	if r == 0 {
+		return // SPI 失败 → 保留 CW_USEDEFAULT 默认位置
+	}
+	pSetWindowPos.Call(
+		hwnd, 0,
+		uintptr(int32(workArea.Left)), uintptr(int32(workArea.Top)),
+		0, 0, // 0,0 + SWP_NOSIZE = 保留尺寸
+		SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE,
+	)
 }
 
 // wndProc 是窗口消息回调（**不能**做阻塞操作）。

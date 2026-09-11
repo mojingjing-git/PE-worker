@@ -100,4 +100,14 @@ const (
 
 	// CW_USEDEFAULT (作 int32 负值传入 → 强转 int32 当 uintptr)
 	CW_USEDEFAULT = ^uintptr(0) // 0xFFFFFFFF...
+
+	// SetWindowPos 的 uFlags（gui.go 强制主显示器用）
+	SWP_NOSIZE     = 0x0001
+	SWP_NOMOVE     = 0x0002
+	SWP_NOZORDER   = 0x0004
+	SWP_NOACTIVATE = 0x0010
+	SWP_SHOWWINDOW = 0x0040
+
+	// SystemParametersInfo 的 uiAction（拿主显示器工作区用）
+	SPI_GETWORKAREA = 0x0030
 )
