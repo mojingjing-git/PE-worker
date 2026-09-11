@@ -18,7 +18,7 @@
 | 顺序 | 路径 | 用途 |
 |---|---|---|
 | 1 | [`PLAN.md`](./PLAN.md) | 设计源头：决策、风险、字段表、阶段计划 |
-| 2 | `docs/01-08` | 各专项设计（工具集、GUI、视觉、PE 验收清单） |
+| 2 | `docs/01-05,07-08` | 各专项设计（06 编号空缺，详见目录结构） |
 | 3 | `spike/` | Phase 0 技术预研产物（5 个独立程序，可读不可 import） |
 | 4 | `src/` | **本项目唯一可改的代码区** |
 
@@ -112,7 +112,7 @@ F:\AI\01_项目\PE-agent\
 ├── go.mod                  # module peagent, go 1.20
 ├── build.cmd               # 一键 vet + test + build（默认/clean/test 三个子命令）
 ├── owl.ini.example         # 配置文件模板
-├── docs/                   # 8 篇专项设计（工具集/GUI/视觉/PE 验收）
+├── docs/                   # 7 篇专项设计（06 编号空缺；工具集/GUI/视觉/PE 验收）
 ├── spike/                  # Phase 0 预研（只读，5 个独立 Go 程序）
 │   ├── job/                #   Job Object + 进程快照 + 杀树 + 386 字节缓冲
 │   ├── gui/                #   Win32 窗口 + LockOSThread + UTF-16 持引用
@@ -124,7 +124,7 @@ F:\AI\01_项目\PE-agent\
 │   └── cacert.pem          #   Mozilla CA bundle（更新见 assets.go 注释）
 ├── src/                    # 唯一可改区
 │   ├── main.go             #   入口：boot 序列（早期日志→cfg→LLM→worker→GUI）
-│   ├── tinker.c            #   C 骨架参考（不编进 exe，README 里引用设计）
+│   ├── tinker.c            #   C 骨架参考（不编进 exe，docs/03 里引用设计）
 │   ├── win/                #   Win32 互操作（最易踩雷）
 │   ├── agent/              #   LLM 客户端 + 适配层 + loop + history + verdict
 │   ├── tools/              #   14 工具注册表 + 业务实现

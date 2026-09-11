@@ -32,7 +32,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"peagent/src/logx"
 	"peagent/src/tools"
@@ -205,6 +204,3 @@ func logxVerdict(turn int, kind, stopReason string, histLen int) error {
 	return logx.Info("** ver turn=%d kind=%s stop=%s hist=%d",
 		turn, kind, stopReason, histLen)
 }
-
-// 静默阻断 strings 包的"没用到"误报（如果 verdict.go 里用了就 OK）
-var _ = strings.TrimSpace

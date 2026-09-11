@@ -27,7 +27,7 @@ func (httpGetTool) Description() string { return "HTTP GET 抓取。args = url�
 func (httpGetTool) Risk() RiskLevel     { return RiskRead }
 
 func (httpGetTool) Run(ctx *Context, args string) (Result, error) {
-	return doGet(ctx, args, nil)
+	return doGet(ctx, args, nil, "peagent/0.1 (http_get)")
 }
 
 type httpsGetTool struct{}
@@ -37,12 +37,13 @@ func (httpsGetTool) Description() string { return "HTTPS GET 抓取 (用 bundled
 func (httpsGetTool) Risk() RiskLevel     { return RiskRead }
 
 func (httpsGetTool) Run(ctx *Context, args string) (Result, error) {
-	return doGet(ctx, args, defaultTLSConfigOnce())
+	return doGet(ctx, args, defaultTLSConfigOnce(), "peagent/0.1 (https_get)")
 }
 
 // doGet 是 httpGet + httpsGet 共用。tlsCfg nil = 走系统库 (http_get);
 // 非 nil = 走 bundled PEM (https_get)。
-func doGet(_ *Context, url string, tlsCfg *tls.Config) (Result, error) {
+// userAgent 由调用方传入，让两个工具能区分 UA（之前写死成 "(https_get)" 是 bug）。
+func doGet(_ *Context, url string, tlsCfg *tls.Config, userAgent string) (Result, error) {
 	if strings.TrimSpace(url) == "" {
 		return Result{}, errors.New("http_get/https_get: empty url")
 	}
@@ -59,7 +60,7 @@ func doGet(_ *Context, url string, tlsCfg *tls.Config) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("http: NewRequest: %w", err)
 	}
-	req.Header.Set("User-Agent", "peagent/0.1 (https_get)")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {

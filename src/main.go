@@ -29,6 +29,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -225,31 +226,13 @@ func exeDir() string {
 func loadCfg(path string) (*cfg.Config, error) {
 	c, err := cfg.Load(path)
 	if err != nil {
-		// ErrFileNotFound 不致命 → 用默认
-		if isErrFileNotFound(err) {
+		// ErrFileNotFound 不致命 → 用默认（cfg.Load 内部用 %w wrap，errors.Is 走得通）
+		if errors.Is(err, cfg.ErrFileNotFound) {
 			return cfg.Default(), nil
 		}
 		return nil, err
 	}
 	return c, nil
-}
-
-func isErrFileNotFound(err error) bool {
-	// cfg.ErrFileNotFound 私有，这里简单靠字符串匹配
-	return err != nil && (containsAny(err.Error(), "file not found", "no such file"))
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if len(sub) > 0 && len(s) >= len(sub) {
-			for i := 0; i+len(sub) <= len(s); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // buildLLM 根据 cfg 构造 agent.Client。

@@ -117,7 +117,7 @@ peagent/
 ├── go.mod                 # module peagent, go 1.20
 ├── build.cmd              # 一键 vet + test + build
 ├── owl.ini.example        # 配置文件模板
-├── docs/                  # 8 篇专项设计
+├── docs/                  # 7 篇专项设计（06 编号空缺）
 │   ├── 01-WinPE-agent-开源项目调研.md
 │   ├── 02-工具集设计建议.md
 │   ├── 03-GUI设计与命名建议.md
@@ -220,7 +220,7 @@ GOARCH=386 go test -count=1 ./src/agent/...
 GOARCH=386 go test -v -run TestE2E ./src/test/...
 ```
 
-**当前状态**：6 包全过、112 个测试 PASS（386 + amd64）。
+**当前状态**：6 包全过、113 个测试 PASS（386 + amd64）。
 
 | 包 | 测试数 | 覆盖 |
 |---|---|---|
@@ -229,7 +229,7 @@ GOARCH=386 go test -v -run TestE2E ./src/test/...
 | `tools` | 22 | 14 工具全部 smoke + help/selftest 元工具 |
 | `cfg` | 12 | INI 解析 + provider/default |
 | `logx` | 5 | PostMessage 投递 + fallback sink |
-| `test` | 10 | e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/owl.exe） |
+| `test` | 11 | e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/owl.exe） |
 
 ---
 
