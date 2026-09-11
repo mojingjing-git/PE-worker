@@ -37,6 +37,9 @@ var (
 	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	pIsWindow            = user32.NewProc("IsWindow")
 
+	// kernel32 时间
+	pGetLocalTime = kernel32.NewProc("GetLocalTime")
+
 	// 消息循环
 	pGetMessageW      = user32.NewProc("GetMessageW")
 	pPeekMessageW     = user32.NewProc("PeekMessageW")

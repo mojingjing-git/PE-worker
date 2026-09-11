@@ -34,6 +34,11 @@ dist/spike64/pe_spike_*.txt
 dist/smith.log
 .tmp/smith.log
 
+# ---- GUI Save 按钮 dump 的 session 日志（可能含真实 LLM 对话，是用户隐私） ----
+smith.session.log
+.tmp/smith.session.log
+dist/smith.session.log
+
 # ---- API key 文件（首次运行 dialog 勾选"保存到磁盘"会创建） ----
 # 不入仓；是用户隐私 + 部署到别人机器的 U 盘不带这文件（dialog 弹回输入）
 smith.key
