@@ -87,10 +87,14 @@ func boot() int {
 
 	// [3.5] 首次运行 / 缺 key → 弹输入对话框（仅 GUI 模式）
 	// --no-gui / --key / ini 已有 key 都不弹
-	// 用户勾选"保存" → 写 smith.key（不在 ini 留明文，更干净）
-	// 用户不勾选 → key 只在内存里，进程退出就丢（U 盘发给别人用就这模式）
+	// 用户勾选"保存" → 写 smith.ini（base/model/provider）+ smith.key
+	// 用户不勾选 → 全部仅在内存里，进程退出就丢（U 盘发给别人用就这模式）
 	if !*noGUI && cfgInstance.LLM.Key == "" && *keyFlag == "" {
-		key, save, ok, err := win.PromptAPIKey(cfgInstance.LLM.Key)
+		key, prov, baseURL, save, ok, err := win.PromptAPIKey(
+			cfgInstance.LLM.Key,
+			cfgInstance.LLM.Provider,
+			cfgInstance.LLM.Base,
+		)
 		if err != nil {
 			_ = logx.Error("!! key dialog: %v", err)
 			return 1
@@ -103,16 +107,42 @@ func boot() int {
 			_ = logx.Warn("!! key dialog OK but empty; 退出")
 			return 0
 		}
+		// 写回内存 cfg
 		cfgInstance.LLM.Key = key
+		if prov != "" {
+			cfgInstance.LLM.Provider = prov
+		}
+		if baseURL != "" {
+			cfgInstance.LLM.Base = baseURL
+		}
+		// OpenAI / DeepSeek 需要 Model；prompt 给默认
+		if cfgInstance.LLM.Model == "" {
+			switch prov {
+			case "anthropic":
+				cfgInstance.LLM.Model = "claude-3-5-sonnet-20241022"
+			case "deepseek":
+				cfgInstance.LLM.Model = "deepseek-chat"
+			default:
+				cfgInstance.LLM.Model = "gpt-4"
+			}
+		}
 		if save {
 			keyPath := filepath.Join(exeDir, "smith.key")
 			if err := os.WriteFile(keyPath, []byte(key+"\n"), 0600); err != nil {
 				_ = logx.Error("!! write %s: %v", keyPath, err)
 				return 1
 			}
-			_ = logx.Info("** ver key saved %s (this session 也要用)", keyPath)
+			_ = logx.Info("** ver key saved %s", keyPath)
+			// smith.ini 合并模式：保留其它段，只覆盖 [llm]
+			iniPath := iniPath
+			if err := cfg.Save(iniPath, cfgInstance, false); err != nil {
+				_ = logx.Error("!! save %s: %v", iniPath, err)
+				return 1
+			}
+			_ = logx.Info("** ver ini updated %s (provider=%s, base=%s)",
+				iniPath, cfgInstance.LLM.Provider, cfgInstance.LLM.Base)
 		} else {
-			_ = logx.Info("** ver key 仅当次有效（不落盘）")
+			_ = logx.Info("** ver LLM config 仅当次有效（不落盘）")
 		}
 	}
 

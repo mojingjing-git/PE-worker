@@ -66,6 +66,95 @@ func TestDefault_HasAllFields(t *testing.T) {
 	}
 }
 
+func TestSave_WholeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.ini")
+	c := &Config{
+		LLM: LLMConfig{
+			Base:     "https://api.openai.com/v1",
+			Model:    "gpt-4",
+			Provider: "openai",
+			KeyFile:  "smith.key",
+			Timeout:  120,
+		},
+		Agent: AgentConfig{Confirm: true, MaxTurns: 10, ImgHistory: 2},
+		UI:    UIConfig{FontSize: 12},
+	}
+	if err := Save(path, c, true); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// 读回来 round-trip
+	c2, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c2.LLM.Base != "https://api.openai.com/v1" {
+		t.Errorf("Base round-trip = %q", c2.LLM.Base)
+	}
+	if c2.LLM.Model != "gpt-4" {
+		t.Errorf("Model round-trip = %q", c2.LLM.Model)
+	}
+	if c2.LLM.Provider != "openai" {
+		t.Errorf("Provider round-trip = %q", c2.LLM.Provider)
+	}
+}
+
+func TestSave_MergeLLMOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.ini")
+	// 先写一个含 [agent] 段的文件
+	initial := `[agent]
+confirm = 1
+maxturns = 8
+imghistory = 4
+
+[ui]
+fontsize = 14
+`
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Save 只改 [llm]
+	c := &Config{
+		LLM: LLMConfig{
+			Base:     "https://api.anthropic.com",
+			Model:    "claude-3-5-sonnet-20241022",
+			Provider: "anthropic",
+			KeyFile:  "smith.key",
+		},
+	}
+	if err := Save(path, c, false); err != nil {
+		t.Fatalf("Save merge: %v", err)
+	}
+	// 读回来
+	c2, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c2.LLM.Provider != "anthropic" {
+		t.Errorf("[llm] 没被更新: Provider = %q", c2.LLM.Provider)
+	}
+	if c2.Agent.MaxTurns != 8 {
+		t.Errorf("[agent] 被破坏了: MaxTurns = %d, want 8", c2.Agent.MaxTurns)
+	}
+	if c2.Agent.ImgHistory != 4 {
+		t.Errorf("[agent] ImgHistory = %d, want 4", c2.Agent.ImgHistory)
+	}
+	if c2.UI.FontSize != 14 {
+		t.Errorf("[ui] FontSize = %d, want 14", c2.UI.FontSize)
+	}
+}
+
+func TestSave_RejectsEmpty(t *testing.T) {
+	if err := Save("", nil, true); err == nil {
+		t.Error("empty path should fail")
+	}
+	dir := t.TempDir()
+	if err := Save(filepath.Join(dir, "x.ini"), nil, true); err == nil {
+		t.Error("nil config should fail")
+	}
+}
+
 func TestLoad_Sample(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.ini")

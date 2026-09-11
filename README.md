@@ -94,9 +94,13 @@ timeout = 120
 
 **首次运行体验**（PLAN §0.6 A5）：
 
-- 没 key 也没 smith.ini → 启动时弹 modal 对话框
-- 输入 key + 勾选"保存到磁盘" → 写 `smith.key`（明文，gitignore）
-- 输入 key + **不勾选** → key 仅当次有效，进程退出就丢（**U 盘发给别人用**就这模式）
+- 没 key 也没 smith.ini → 启动时弹 modal 对话框（**520x220**），4 个输入：
+  - **Provider**: 3 个 radio (OpenAI / Anthropic / DeepSeek) — 切换自动填 Base URL
+  - **Base URL**: 文本框（OpenAI / DeepSeek 走 Chat Completions，URL 带 `/v1`；Anthropic 走 Messages，URL 不带 `/v1/messages`）
+  - **API Key**: 密码框（ES_PASSWORD 显示 ●）
+  - **保存到磁盘**: checkbox（勾上 = 写 `smith.ini` + `smith.key`；不勾 = 仅当次）
+- 用户勾选"保存" → 写 `smith.ini`（[llm] 段含 base/model/provider）+ `smith.key`（key 单行）
+- 用户不勾 → 全部仅内存，进程退出就丢（**U 盘发给别人用**就这模式）
 - 已有 key 的话对话框预填，点 OK 直接覆盖/保留
 - Esc / 关窗 = 取消 = 进程退出（明确"没配好就跑不动"）
 
