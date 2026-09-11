@@ -90,6 +90,7 @@ func boot() int {
 	// 用户勾选"保存" → 写 smith.ini（base/model/provider）+ smith.key
 	// 用户不勾选 → 全部仅在内存里，进程退出就丢（U 盘发给别人用就这模式）
 	if !*noGUI && cfgInstance.LLM.Key == "" && *keyFlag == "" {
+		_ = logx.Info("** ver calling PromptAPIKey")
 		key, prov, baseURL, model, save, ok, err := win.PromptAPIKey(
 			cfgInstance.LLM.Key,
 			cfgInstance.LLM.Provider,
@@ -100,6 +101,7 @@ func boot() int {
 			_ = logx.Error("!! key dialog: %v", err)
 			return 1
 		}
+		_ = logx.Info("** ver PromptAPIKey returned ok=%v save=%v keyLen=%d", ok, save, len(key))
 		if !ok {
 			_ = logx.Warn("!! key dialog cancelled; 退出")
 			return 0
