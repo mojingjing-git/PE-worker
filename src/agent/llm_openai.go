@@ -68,8 +68,8 @@ type openAIToolCall struct {
 type openAITool struct {
 	Type     string `json:"type"`
 	Function struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string                 `json:"name"`
+		Description string                 `json:"description"`
 		Parameters  map[string]interface{} `json:"parameters"`
 	} `json:"function"`
 }
@@ -82,9 +82,9 @@ type openAIResponse struct {
 	Created int64  `json:"created"`
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int    `json:"index"`
+		Index        int               `json:"index"`
 		Message      openAIRespMessage `json:"message"`
-		FinishReason string `json:"finish_reason"`
+		FinishReason string            `json:"finish_reason"`
 	} `json:"choices"`
 	// DeepSeek 特有：reasoning_content 在 message 字段里。openaiResponse.message
 	// 抽出来定义。
@@ -162,8 +162,8 @@ func buildOpenAIRequest(cfg Config, req Request) openAIRequest {
 				om.ToolCalls = make([]openAIToolCall, len(m.ToolCalls))
 				for i, tc := range m.ToolCalls {
 					om.ToolCalls[i] = openAIToolCall{
-						ID:    tc.ID,
-						Type:  "function",
+						ID:   tc.ID,
+						Type: "function",
 						Function: struct {
 							Name      string `json:"name"`
 							Arguments string `json:"arguments"`

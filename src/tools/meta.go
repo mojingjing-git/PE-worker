@@ -26,9 +26,11 @@ func (helpTool) Run(_ *Context, _ string) (Result, error) {
 
 type selftestTool struct{}
 
-func (selftestTool) Name() string        { return "selftest" }
-func (selftestTool) Description() string { return "自检：所有工具的元信息（名/描述/风险）合法 + 注册数 == 14。" }
-func (selftestTool) Risk() RiskLevel     { return RiskRead }
+func (selftestTool) Name() string { return "selftest" }
+func (selftestTool) Description() string {
+	return "自检：所有工具的元信息（名/描述/风险）合法 + 注册数 == 14。"
+}
+func (selftestTool) Risk() RiskLevel { return RiskRead }
 
 func (selftestTool) Run(_ *Context, _ string) (Result, error) {
 	tools := All()

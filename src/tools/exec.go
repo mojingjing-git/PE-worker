@@ -23,9 +23,11 @@ const execTimeoutSec = 60
 
 type execTool struct{}
 
-func (execTool) Name() string        { return "exec" }
-func (execTool) Description() string { return "执行命令并返回输出。首 token 会在白名单里检查（软护栏）。危险操作需要 confirm。" }
-func (execTool) Risk() RiskLevel     { return RiskExec }
+func (execTool) Name() string { return "exec" }
+func (execTool) Description() string {
+	return "执行命令并返回输出。首 token 会在白名单里检查（软护栏）。危险操作需要 confirm。"
+}
+func (execTool) Risk() RiskLevel { return RiskExec }
 
 func (execTool) Run(ctx *Context, args string) (Result, error) {
 	if strings.TrimSpace(args) == "" {

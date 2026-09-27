@@ -10,7 +10,8 @@
 //
 // v1-L1 硬规则：所有工具 Run() 返 (Result, error)。
 // docs/02 §7 6 条约定：白名单是软护栏 + confirm 拦危险 + exec 校验首 token +
-//   run_script/download 不经白名单。
+//
+//	run_script/download 不经白名单。
 package tools
 
 import (
@@ -23,10 +24,10 @@ import (
 type RiskLevel int
 
 const (
-	RiskRead       RiskLevel = iota // 只读
-	RiskWrite                        // 写文件
-	RiskExec                         // 执行命令
-	RiskDangerous                    // 写 .bat / 调外部服务
+	RiskRead      RiskLevel = iota // 只读
+	RiskWrite                      // 写文件
+	RiskExec                       // 执行命令
+	RiskDangerous                  // 写 .bat / 调外部服务
 )
 
 func (r RiskLevel) String() string {
@@ -81,8 +82,8 @@ type Config struct {
 
 // 注册表（全局, 一次性初始化）
 var (
-	mu   sync.RWMutex
-	all  = map[string]Tool{}
+	mu  sync.RWMutex
+	all = map[string]Tool{}
 )
 
 // Register 注册一个工具。name 重复会覆盖（启动期应无重复）。

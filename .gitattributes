@@ -1,0 +1,28 @@
+# PE-agent .gitattributes
+#
+# cmd.exe REQUIRES CRLF line endings. With LF-only endings, build.cmd consumes
+# ~7 leading bytes of every line (the UTF-8 byte length of the project path
+# prefix "F:\AI\01_项目\") and spins forever in the parser with no child process.
+# That bug cost two 400-second build timeouts before it was diagnosed
+# (docs/11 S6 implementation record). Enforce it in git so it cannot come back.
+
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Go and docs: normalise to LF in the repo, let the working tree stay native.
+*.go       text eol=lf
+*.md       text eol=lf
+*.c        text eol=lf
+*.pem      text eol=lf
+*.ini      text eol=lf
+*.example  text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# Binary artifacts: never touch, never line-ending-convert.
+*.exe    binary
+*.dll    binary
+*.png    binary
+*.jpg    binary
+*.key    binary

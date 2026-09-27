@@ -25,13 +25,13 @@ import (
 
 // 默认值（PLAN §0.6 B6 字段表 + B7 字段约定）
 const (
-	DefaultKeyFile   = "smith.key"
-	DefaultVision    = false
-	DefaultTimeout   = 120
-	DefaultConfirm   = true
-	DefaultMaxTurns  = 10
+	DefaultKeyFile    = "smith.key"
+	DefaultVision     = false
+	DefaultTimeout    = 120
+	DefaultConfirm    = true
+	DefaultMaxTurns   = 10
 	DefaultImgHistory = 2
-	DefaultFontSize  = 12
+	DefaultFontSize   = 12
 )
 
 // Config 是 smith.ini 解析后的根结构。

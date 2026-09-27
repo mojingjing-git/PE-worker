@@ -18,22 +18,22 @@ var (
 // user32 procs
 var (
 	// 窗口 / 类
-	pCreateWindowExW  = user32.NewProc("CreateWindowExW")
-	pDestroyWindow    = user32.NewProc("DestroyWindow")
-	pDefWindowProcW   = user32.NewProc("DefWindowProcW")
-	pRegisterClassExW = user32.NewProc("RegisterClassExW")
-	pUnregisterClassW = user32.NewProc("UnregisterClassW")
-	pShowWindow       = user32.NewProc("ShowWindow")
-	pMoveWindow       = user32.NewProc("MoveWindow")
-	pUpdateWindow     = user32.NewProc("UpdateWindow")
-	pInvalidateRect   = user32.NewProc("InvalidateRect")
-	pSetWindowTextW   = user32.NewProc("SetWindowTextW")
-	pGetWindowTextW   = user32.NewProc("GetWindowTextW")
-	pGetClientRect    = user32.NewProc("GetClientRect")
-	pSetFocus         = user32.NewProc("SetFocus")
-	pGetDlgItem       = user32.NewProc("GetDlgItem")
-	pSetWindowPos     = user32.NewProc("SetWindowPos")
-	pEnableWindow     = user32.NewProc("EnableWindow")
+	pCreateWindowExW     = user32.NewProc("CreateWindowExW")
+	pDestroyWindow       = user32.NewProc("DestroyWindow")
+	pDefWindowProcW      = user32.NewProc("DefWindowProcW")
+	pRegisterClassExW    = user32.NewProc("RegisterClassExW")
+	pUnregisterClassW    = user32.NewProc("UnregisterClassW")
+	pShowWindow          = user32.NewProc("ShowWindow")
+	pMoveWindow          = user32.NewProc("MoveWindow")
+	pUpdateWindow        = user32.NewProc("UpdateWindow")
+	pInvalidateRect      = user32.NewProc("InvalidateRect")
+	pSetWindowTextW      = user32.NewProc("SetWindowTextW")
+	pGetWindowTextW      = user32.NewProc("GetWindowTextW")
+	pGetClientRect       = user32.NewProc("GetClientRect")
+	pSetFocus            = user32.NewProc("SetFocus")
+	pGetDlgItem          = user32.NewProc("GetDlgItem")
+	pSetWindowPos        = user32.NewProc("SetWindowPos")
+	pEnableWindow        = user32.NewProc("EnableWindow")
 	pSetForegroundWindow = user32.NewProc("SetForegroundWindow")
 	pIsWindow            = user32.NewProc("IsWindow")
 
@@ -65,16 +65,16 @@ var (
 	pReleaseDC  = user32.NewProc("ReleaseDC")
 
 	// 系统信息
-	pGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
+	pGetSystemMetrics      = user32.NewProc("GetSystemMetrics")
 	pSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
 )
 
 // gdi32 procs
 var (
 	// 资源
-	pSelectObject    = gdi32.NewProc("SelectObject")
-	pDeleteObject    = gdi32.NewProc("DeleteObject")
-	pGetStockObject  = gdi32.NewProc("GetStockObject") // 唯一来源: DEFAULT_GUI_FONT, HOLLOW_BRUSH 等都在 gdi32
+	pSelectObject   = gdi32.NewProc("SelectObject")
+	pDeleteObject   = gdi32.NewProc("DeleteObject")
+	pGetStockObject = gdi32.NewProc("GetStockObject") // 唯一来源: DEFAULT_GUI_FONT, HOLLOW_BRUSH 等都在 gdi32
 
 	// 颜色
 	pSetTextColor = gdi32.NewProc("SetTextColor")

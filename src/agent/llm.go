@@ -11,12 +11,12 @@
 //
 // 设计原则（PLAN §0.6 A11、§0.7 P0-4、§0.9 v1 L1+L4+L5）：
 //
-//	- 绝不吞错（5xx body 全文带回，便于 PE 里排查）。
-//	- 重试只对 5xx 和网络错误做；4xx 一律不重试（重试浪费 token）。
-//	- HTTP/2 默认关（spike/https 注释：HTTP/2 在 PE 里多一个变量，
-//	  P0-4 只验了 HTTP/1.1 + TLS 1.2）。
-//	- 客户端的 timeout 走 http.Client.Timeout，**不是** context deadline 单独设
-//	  （两个都设，错误信息会更难解读）。ctx 仍透传给底层 transport 做 cancel。
+//   - 绝不吞错（5xx body 全文带回，便于 PE 里排查）。
+//   - 重试只对 5xx 和网络错误做；4xx 一律不重试（重试浪费 token）。
+//   - HTTP/2 默认关（spike/https 注释：HTTP/2 在 PE 里多一个变量，
+//     P0-4 只验了 HTTP/1.1 + TLS 1.2）。
+//   - 客户端的 timeout 走 http.Client.Timeout，**不是** context deadline 单独设
+//     （两个都设，错误信息会更难解读）。ctx 仍透传给底层 transport 做 cancel。
 package agent
 
 import (

@@ -13,9 +13,11 @@ import (
 // write: 写整个文件. args = "<path>\n<content>" (第一行是路径, 剩余是内容)
 type writeTool struct{}
 
-func (writeTool) Name() string        { return "write" }
-func (writeTool) Description() string { return "写整个文件。args = \"<path>\\n<content>\"。覆盖已存在文件。" }
-func (writeTool) Risk() RiskLevel     { return RiskWrite }
+func (writeTool) Name() string { return "write" }
+func (writeTool) Description() string {
+	return "写整个文件。args = \"<path>\\n<content>\"。覆盖已存在文件。"
+}
+func (writeTool) Risk() RiskLevel { return RiskWrite }
 
 func (writeTool) Run(ctx *Context, args string) (Result, error) {
 	path, content, err := splitPathContent(args)
@@ -35,9 +37,11 @@ func (writeTool) Run(ctx *Context, args string) (Result, error) {
 // 简化: args = "<path>\n<old>\n<new>" 三行
 type editTool struct{}
 
-func (editTool) Name() string        { return "edit" }
-func (editTool) Description() string { return "替换文件内容。args = 三行: <path> / <old> / <new>。" }
-func (editTool) Risk() RiskLevel     { return RiskWrite }
+func (editTool) Name() string { return "edit" }
+func (editTool) Description() string {
+	return "替换文件内容。args = 三行: <path> / <old> / <new>。"
+}
+func (editTool) Risk() RiskLevel { return RiskWrite }
 
 func (editTool) Run(ctx *Context, args string) (Result, error) {
 	lines := strings.SplitN(args, "\n", 3)
@@ -72,9 +76,11 @@ func (editTool) Run(ctx *Context, args string) (Result, error) {
 // append: 追加到文件末尾. args = "<path>\n<content>"
 type appendTool struct{}
 
-func (appendTool) Name() string        { return "append" }
-func (appendTool) Description() string { return "追加内容到文件末尾。args = \"<path>\\n<content>\"。" }
-func (appendTool) Risk() RiskLevel     { return RiskWrite }
+func (appendTool) Name() string { return "append" }
+func (appendTool) Description() string {
+	return "追加内容到文件末尾。args = \"<path>\\n<content>\"。"
+}
+func (appendTool) Risk() RiskLevel { return RiskWrite }
 
 func (appendTool) Run(ctx *Context, args string) (Result, error) {
 	path, content, err := splitPathContent(args)

@@ -17,15 +17,19 @@ import (
 )
 
 // TestSmoke_SmithBinary 跑 dist/smith.exe --no-gui，验证：
-//   1. 进程起得来（不闪退）
-//   2. 日志文件落盘
-//   3. exit code 0
-//   4. 日志里能看到 boot 序列
+//  1. 产物不陈旧（比最新源码新）—— 见 assertBinaryFresh
+//  2. 进程起得来（不闪退）
+//  3. 日志文件落盘
+//  4. exit code 0
+//  5. 日志里能看到 boot 序列
 func TestSmoke_SmithBinary(t *testing.T) {
 	src := findSmithBinary(t)
 	if src == "" {
 		t.Skip("dist/smith.exe not found; run build.cmd first")
 	}
+	// 陈旧产物会让后面所有断言失去意义：它们验的不是当前代码。
+	// 这里用 Fatalf（不是 Skip）—— 缺产物可以 Skip，产物过期是必须修的错误。
+	assertBinaryFresh(t, src)
 
 	// 把 smith.exe 复制到 temp dir 跑，logx 写日志到 exe 同目录
 	// 这样测试结束清理不污染 dist/
@@ -100,6 +104,94 @@ func findSmithBinary(t *testing.T) string {
 		}
 	}
 	return ""
+}
+
+// assertBinaryFresh 断言产物不比任何源文件旧。
+//
+// 为什么必须有（docs/11 §S6-2）：
+//
+//	findSmithBinary 原来只做 os.Stat 存在性判断。而 dist/ 里的 exe 曾经
+//	是别的工具用裸 `go build` 建的（PE 子系统=3 CONSOLE、没剥符号、
+//	比正确产物大 47%），还比 src/win/oem.go 旧 3 个 commit。
+//	这个测试对着它跑完，打印 PASS —— 一盏与真实交付物零相关的绿灯。
+//
+//	一个"跑交付物"的测试如果不检查交付物本身新鲜，等于没测。
+func assertBinaryFresh(t *testing.T, bin string) {
+	t.Helper()
+
+	binInfo, err := os.Stat(bin)
+	if err != nil {
+		t.Fatalf("stat %s: %v", bin, err)
+	}
+	binTime := binInfo.ModTime()
+
+	root, err := projectRoot()
+	if err != nil {
+		t.Fatalf("project root: %v", err)
+	}
+
+	// 参与新鲜度判定的输入：源码 + 构建脚本 + 嵌入资源 + 测试自身用到的配置模板。
+	// 漏掉任何一类都会让"改了东西但没触发重建"静默通过。
+	roots := []string{
+		filepath.Join(root, "src"),
+		filepath.Join(root, "assets"),
+	}
+	files := []string{
+		filepath.Join(root, "build.cmd"),
+		filepath.Join(root, "go.mod"),
+		filepath.Join(root, "smith.ini.example"),
+	}
+	for _, r := range roots {
+		// _test.go 必须排除：`go build .\src` 根本不编译测试文件，
+		// 改一个测试文件不会让产物变陈旧。把它算进来会导致
+		// "只改了测试就直接跑 go test"必红 —— 那是噪音，不是闸门。
+		if werr := filepath.Walk(r, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				// 目录读不到就跳过这一项，但要让用户看见（L5：不吞错）。
+				// 静默截断会让比对集变小 —— 也就是漏判。
+				t.Logf("walk %s: %v", p, err)
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if strings.HasSuffix(p, "_test.go") {
+				return nil
+			}
+			if filepath.Ext(p) == ".go" || filepath.Ext(p) == ".pem" {
+				files = append(files, p)
+			}
+			return nil
+		}); werr != nil {
+			t.Fatalf("walk %s: %v", r, werr)
+		}
+	}
+
+	var newest os.FileInfo
+	var newestPath string
+	for _, f := range files {
+		info, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		if newest == nil || info.ModTime().After(newest.ModTime()) {
+			newest, newestPath = info, f
+		}
+	}
+	if newest == nil {
+		t.Fatalf("找不到任何源文件来比对新鲜度（root=%s）", root)
+	}
+
+	if binTime.Before(newest.ModTime()) {
+		rel, _ := filepath.Rel(root, newestPath)
+		t.Fatalf("产物已过期：%s 建于 %s，但 %s 建于 %s。\n"+
+			"     跑 build.cmd 重建后再测 —— 否则这个测试验的不是当前代码。",
+			filepath.Base(bin), binTime.Format("2006-01-02 15:04:05"),
+			rel, newest.ModTime().Format("2006-01-02 15:04:05"))
+	}
+	t.Logf("产物新鲜：%s（%s）>= 最新输入 %s（%s）",
+		filepath.Base(bin), binTime.Format("01-02 15:04:05"),
+		newestPath, newest.ModTime().Format("01-02 15:04:05"))
 }
 
 // projectRoot 找 go.mod 所在目录。

@@ -4,18 +4,19 @@
 //
 // 流程：
 //
-//	1. 拿用户输入 → 追加到 history
-//	2. 发 history + tools 给 LLM
-//	3. 把 assistant 消息追加到 history
-//	4. 如果 LLM 返回 tool_calls：
-//	   a. 每个 tool 调一次，按序追加 tool result 到 history
-//	   b. 削历史（clipHistory + ClipImages）
-//	   c. 回到 2
-//	5. 如果 LLM 返回纯文本：返回给用户
-//	6. maxTurns 上限防止死循环
-//	7. ctx 取消立即返（每轮前 check）
+//  1. 拿用户输入 → 追加到 history
+//  2. 发 history + tools 给 LLM
+//  3. 把 assistant 消息追加到 history
+//  4. 如果 LLM 返回 tool_calls：
+//     a. 每个 tool 调一次，按序追加 tool result 到 history
+//     b. 削历史（clipHistory + ClipImages）
+//     c. 回到 2
+//  5. 如果 LLM 返回纯文本：返回给用户
+//  6. maxTurns 上限防止死循环
+//  7. ctx 取消立即返（每轮前 check）
 //
 // 日志约定（PLAN §8 + L4 硬规则）：
+//
 //	you > ...     用户输入
 //	ai  > ...     assistant 文本
 //	->  name ...  调工具（带 args）

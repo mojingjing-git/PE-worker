@@ -3,11 +3,11 @@
 // 目标：把 cfg + tools + agent + logx 串起来跑通最小闭环。
 //
 // 范围（PLAN §7 验收 + P1-14 范围）：
-//   1. cfg 加载 → agent.LLM 配置转换
-//   2. agent.Loop 跑一条 user input → 调 help 工具 → 收到结果 → 返文本
-//   3. 14 工具的 Registry 完整性 + RiskLevel 合理
-//   4. history.go 在长会话下的滑动窗口正确
-//   5. win package 关键常量 + win.KeepAlive 不爆
+//  1. cfg 加载 → agent.LLM 配置转换
+//  2. agent.Loop 跑一条 user input → 调 help 工具 → 收到结果 → 返文本
+//  3. 14 工具的 Registry 完整性 + RiskLevel 合理
+//  4. history.go 在长会话下的滑动窗口正确
+//  5. win package 关键常量 + win.KeepAlive 不爆
 //
 // 不测（GUI 路径，本机无桌面）：
 //   - 创建窗口 / 消息循环 / 用户输入捕获

@@ -23,15 +23,15 @@ import (
 
 // 来自 spike 实测 + Win32 头文件
 const (
-	jobExtLimitInfoSizeX86        = 112 // MSVC x86（8 字节对齐 LARGE_INTEGER）
-	jobExtLimitInfoSizeX64        = 144 // MSVC x64
-	jobLimitFlagsOffset           = 16  // 两种架构下 LimitFlags 都在偏移 16（两个 LARGE_INTEGER 之后）
-	jobObjectLimitKillOnJobClose  = 0x00002000
+	jobExtLimitInfoSizeX86       = 112 // MSVC x86（8 字节对齐 LARGE_INTEGER）
+	jobExtLimitInfoSizeX64       = 144 // MSVC x64
+	jobLimitFlagsOffset          = 16  // 两种架构下 LimitFlags 都在偏移 16（两个 LARGE_INTEGER 之后）
+	jobObjectLimitKillOnJobClose = 0x00002000
 )
 
 var (
-	ErrCreateJobObject         = errors.New("win: CreateJobObjectW failed")
-	ErrSetInformationJobObject = errors.New("win: SetInformationJobObject failed")
+	ErrCreateJobObject          = errors.New("win: CreateJobObjectW failed")
+	ErrSetInformationJobObject  = errors.New("win: SetInformationJobObject failed")
 	ErrAssignProcessToJobObject = errors.New("win: AssignProcessToJobObject failed")
 	ErrTerminateJobObject       = errors.New("win: TerminateJobObject failed")
 )

@@ -27,35 +27,36 @@ import (
 
 // 窗口 / 控件 / 资源 ID
 const (
-	idLog      = 1001
-	idInput    = 1002
-	idSend     = 1003
-	idStop     = 1004
-	idStatus   = 1005
-	idLogCopy  = 1006
-	idLogClear = 1007
-	idLogSave  = 1008
+	idLog       = 1001
+	idInput     = 1002
+	idSend      = 1003
+	idStop      = 1004
+	idStatus    = 1005
+	idLogCopy   = 1006
+	idLogClear  = 1007
+	idLogSave   = 1008
 	idTimerTick = 1
 	idTimerQuit = 2
 
-	tickIntervalMs = 1000
-	logMaxChars    = 60000
+	tickIntervalMs  = 1000
+	logMaxChars     = 60000
 	logTruncateKeep = 30000 // 超过 logMaxChars 时保留后 30000 字符
 )
 
 // Win32 风格常量（msgs.go 集中了，这里留空）
 // （WS_OVERLAPPEDWINDOW / WS_VISIBLE / WS_CHILD / WS_VSCROLL 等见 msgs.go）
 
-const colorBtnFace = 16 // COLOR_BTNFACE + 1
+// 审计订正：原来这里有一份 `const colorBtnFace = 16` 副本，与 msgs.go 的
+// COLOR_BTNFACE_BRUSH 是同一值的两个真相源。已删除，统一用常量。
 
 // global state (UI 线程独占, 不并发访问)
 var (
-	gHwnd   uintptr
-	gLog    uintptr
-	gInput  uintptr
-	gSend   uintptr
-	gStop   uintptr
-	gStatus uintptr
+	gHwnd     uintptr
+	gLog      uintptr
+	gInput    uintptr
+	gSend     uintptr
+	gStop     uintptr
+	gStatus   uintptr
 	gLogCopy  uintptr
 	gLogClear uintptr
 	gLogSave  uintptr
@@ -91,7 +92,7 @@ func Run() int {
 	defer Hold(className)
 
 	cursor, _, _ := pLoadCursorW.Call(0, uintptr(32512)) // IDC_ARROW = 32512
-	stockFont, _, _ := pGetStockObject.Call(17)         // DEFAULT_GUI_FONT = 17
+	stockFont, _, _ := pGetStockObject.Call(DEFAULT_GUI_FONT)
 
 	cls := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
@@ -99,7 +100,7 @@ func Run() int {
 		LpfnWndProc:   syscall.NewCallback(wndProc),
 		HInstance:     hInst,
 		HCursor:       cursor,
-		HbrBackground: uintptr(colorBtnFace),
+		HbrBackground: COLOR_BTNFACE_BRUSH,
 		LpszClassName: uintptr(unsafe.Pointer(className)),
 	}
 	atom, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&cls)))
@@ -161,7 +162,7 @@ func Run() int {
 		Time     uint32
 		PtX      int32
 		PtY      int32
-		LPrivate  uint32
+		LPrivate uint32
 	}
 	for {
 		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
@@ -378,7 +379,7 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 // 资源: idLog (EDIT) / idInput (EDIT) / idSend (BUTTON) / idStop (BUTTON) / idStatus (STATIC)
 func onCreate(hwnd uintptr) {
 	hInst, _, _ := pGetModuleHandleW.Call(0)
-	stockFont, _, _ := pGetStockObject.Call(17)
+	stockFont, _, _ := pGetStockObject.Call(DEFAULT_GUI_FONT)
 
 	// 日志 EDIT (只读多行)
 	cls, _ := Ptr("EDIT")
@@ -545,10 +546,10 @@ func onTick(_ uintptr) {
 // 已够定位，颜色留给后续 EM_SETCHARFORMAT commit）。
 //
 // 行为：
-//   1. 检查 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep（B 修复 M-3）
-//   2. prepend `[HH:MM:SS] ` 时间戳（D：方便定位日志时间）
-//   3. 找 think 段（<think>...</think>），单独 EM_SETCHARFORMAT 改 yHeight 让其"小一号"
-//   4. EM_SETSEL(-1,-1) + EM_REPLACESEL 追加 + EM_SCROLLCARET 滚动
+//  1. 检查 buffer 长度，超 logMaxChars 就删前段保留后 logTruncateKeep（B 修复 M-3）
+//  2. prepend `[HH:MM:SS] ` 时间戳（D：方便定位日志时间）
+//  3. 找 think 段（<think>...</think>），单独 EM_SETCHARFORMAT 改 yHeight 让其"小一号"
+//  4. EM_SETSEL(-1,-1) + EM_REPLACESEL 追加 + EM_SCROLLCARET 滚动
 func appendLog(wparam, lparam uintptr) {
 	if gLog == 0 || lparam == 0 {
 		return
@@ -667,7 +668,7 @@ func findThinkBlocks(lineBuf []uint16) []thinkSpan {
 func newCharFormatSize(yHeight int32) []byte {
 	const cfSize = 92 // CHARFORMATW actual layout size
 	buf := make([]byte, cfSize)
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(cfSize)) // cbSize
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(cfSize))   // cbSize
 	binary.LittleEndian.PutUint32(buf[4:8], uint32(CFM_SIZE)) // dwMask = CFM_SIZE
 	// yHeight 在 offset 12（cbSize+dwMask+DwEffects 之后）
 	binary.LittleEndian.PutUint32(buf[12:16], uint32(yHeight))

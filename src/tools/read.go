@@ -71,9 +71,11 @@ func (grepTool) Run(ctx *Context, args string) (Result, error) {
 // find: 按文件名找文件. args = "<pattern> <path>" 或 "<pattern>" (递归)
 type findTool struct{}
 
-func (findTool) Name() string        { return "find" }
-func (findTool) Description() string { return "按文件名模式找文件。args = \"<pattern> <path>\" 或 \"<pattern>\" (递归 CWD)。" }
-func (findTool) Risk() RiskLevel     { return RiskRead }
+func (findTool) Name() string { return "find" }
+func (findTool) Description() string {
+	return "按文件名模式找文件。args = \"<pattern> <path>\" 或 \"<pattern>\" (递归 CWD)。"
+}
+func (findTool) Risk() RiskLevel { return RiskRead }
 
 func (findTool) Run(ctx *Context, args string) (Result, error) {
 	parts := strings.Fields(args)

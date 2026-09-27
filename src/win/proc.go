@@ -30,14 +30,14 @@ const (
 	errnoNone         = 0
 
 	// 进程访问权限
-	processTerminate       = 0x0001
-	processQueryLimited    = 0x1000 // PROCESS_QUERY_LIMITED_INFORMATION
+	processTerminate        = 0x0001
+	processQueryLimited     = 0x1000 // PROCESS_QUERY_LIMITED_INFORMATION
 	processQueryInformation = 0x0400
 
 	// CreateProcess 标志
-	createSuspended         = 0x00000004
-	createBreakawayFromJob  = 0x01000000
-	createNoWindow          = 0x08000000
+	createSuspended        = 0x00000004
+	createBreakawayFromJob = 0x01000000
+	createNoWindow         = 0x08000000
 )
 
 // ProcessInfo 是 SnapshotProcesses 返回的最小信息（PPID + Name）。
@@ -48,12 +48,12 @@ type ProcessInfo struct {
 
 // 错误集
 var (
-	ErrSnapshotCreate  = errors.New("win: CreateToolhelp32Snapshot failed")
-	ErrProcess32First  = errors.New("win: Process32FirstW failed")
-	ErrProcess32Next   = errors.New("win: Process32NextW failed")
-	ErrOpenProcess     = errors.New("win: OpenProcess failed")
-	ErrTerminateProc   = errors.New("win: TerminateProcess failed")
-	ErrQueryInherited  = errors.New("win: NtQueryInformationProcess failed")
+	ErrSnapshotCreate = errors.New("win: CreateToolhelp32Snapshot failed")
+	ErrProcess32First = errors.New("win: Process32FirstW failed")
+	ErrProcess32Next  = errors.New("win: Process32NextW failed")
+	ErrOpenProcess    = errors.New("win: OpenProcess failed")
+	ErrTerminateProc  = errors.New("win: TerminateProcess failed")
+	ErrQueryInherited = errors.New("win: NtQueryInformationProcess failed")
 )
 
 // SnapshotProcesses 是 snapshotProcs 的导出版本, 给 tools/ps.go 用。

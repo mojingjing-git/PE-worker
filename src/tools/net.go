@@ -32,9 +32,11 @@ func (httpGetTool) Run(ctx *Context, args string) (Result, error) {
 
 type httpsGetTool struct{}
 
-func (httpsGetTool) Name() string        { return "https_get" }
-func (httpsGetTool) Description() string { return "HTTPS GET 抓取 (用 bundled CA bundle)。args = url。不经白名单。" }
-func (httpsGetTool) Risk() RiskLevel     { return RiskRead }
+func (httpsGetTool) Name() string { return "https_get" }
+func (httpsGetTool) Description() string {
+	return "HTTPS GET 抓取 (用 bundled CA bundle)。args = url。不经白名单。"
+}
+func (httpsGetTool) Risk() RiskLevel { return RiskRead }
 
 func (httpsGetTool) Run(ctx *Context, args string) (Result, error) {
 	return doGet(ctx, args, defaultTLSConfigOnce(), "peagent/0.1 (https_get)")

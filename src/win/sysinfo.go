@@ -64,13 +64,13 @@ type SystemInfo struct {
 
 // 显式错误（v1-L1 契约：调用方用 errors.Is 判）
 var (
-	ErrMemoryStatus   = errors.New("win: GlobalMemoryStatusEx failed")
-	ErrRtlGetVersion  = errors.New("win: RtlGetVersion failed")
-	ErrSysInfo        = errors.New("win: GetNativeSystemInfo failed")
-	ErrLogicalDrives  = errors.New("win: GetLogicalDrives failed")
-	ErrDriveType      = errors.New("win: GetDriveTypeW failed")
-	ErrComputerName   = errors.New("win: GetComputerNameW failed")
-	ErrUserName       = errors.New("win: GetUserNameW failed")
+	ErrMemoryStatus  = errors.New("win: GlobalMemoryStatusEx failed")
+	ErrRtlGetVersion = errors.New("win: RtlGetVersion failed")
+	ErrSysInfo       = errors.New("win: GetNativeSystemInfo failed")
+	ErrLogicalDrives = errors.New("win: GetLogicalDrives failed")
+	ErrDriveType     = errors.New("win: GetDriveTypeW failed")
+	ErrComputerName  = errors.New("win: GetComputerNameW failed")
+	ErrUserName      = errors.New("win: GetUserNameW failed")
 )
 
 // MemoryStatus 调 GlobalMemoryStatusEx 拿当前系统内存状态。

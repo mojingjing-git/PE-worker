@@ -6,9 +6,9 @@
 //   - 鉴权 header 是 x-api-key + anthropic-version: 2023-06-01（不是 Bearer）。
 //   - system 字段是**顶层**字段，不在 messages 里。
 //   - 消息内容是**数组**（typed blocks）而不是字符串：
-//       text     → {"type":"text","text":"..."}
-//       tool_use → {"type":"tool_use","id":"...","name":"...","input":{...}}
-//       tool_result → {"type":"tool_result","tool_use_id":"...","content":"..."}
+//     text     → {"type":"text","text":"..."}
+//     tool_use → {"type":"tool_use","id":"...","name":"...","input":{...}}
+//     tool_result → {"type":"tool_result","tool_use_id":"...","content":"..."}
 //   - tool 的 input_schema 字段名、tool_use_id 字段名都和 OpenAI 不同。
 //
 // 因此本文件是**独立分支**，不复用 openai 的 struct。

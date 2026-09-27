@@ -112,6 +112,6 @@ type Config struct {
 	BaseURL   string // 不带尾斜杠；provider 适配层自己拼路径
 	Model     string
 	APIKey    string
-	TimeoutS  int    // 默认 120
-	MaxTokens int    // 默认 2048
+	TimeoutS  int // 默认 120
+	MaxTokens int // 默认 2048
 }

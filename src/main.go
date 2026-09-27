@@ -20,11 +20,11 @@
 //
 // 设计原则（v1 L1+L4+L5 + PLAN §0.9）：
 //
-//	- 所有 API 返 (T, error)。
-//	- **不吞错**：每层 err 透传到上一层。
-//	- 日志按 you>/ai>/->/<-/!!/** 前缀（PLAN §8）→ logx 统一处理。
-//	- worker 用 context 取消；UI 线程**不**直接调 agent.loop.Run（loop 会
-//	  阻塞秒级 → 窗口冻结）。所有"调 LLM / 跑工具"都丢到 worker goroutine。
+//   - 所有 API 返 (T, error)。
+//   - **不吞错**：每层 err 透传到上一层。
+//   - 日志按 you>/ai>/->/<-/!!/** 前缀（PLAN §8）→ logx 统一处理。
+//   - worker 用 context 取消；UI 线程**不**直接调 agent.loop.Run（loop 会
+//     阻塞秒级 → 窗口冻结）。所有"调 LLM / 跑工具"都丢到 worker goroutine。
 package main
 
 import (
@@ -308,6 +308,7 @@ func exeDir() string {
 // hasUsableKey 判 cfg 是否已经有可用的 key：
 //   - c.LLM.Key != ""           → 直接有
 //   - c.LLM.KeyFile != "" 且文件可读 → 走 keyfile 模式
+//
 // 不可读时返 false，buildLLM 阶段会报"read keyfile ...: no such file" 错。
 func hasUsableKey(c *cfg.Config) bool {
 	if c.LLM.Key != "" {

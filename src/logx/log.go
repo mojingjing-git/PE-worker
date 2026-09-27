@@ -45,7 +45,7 @@ var levelPrefix = map[Level]string{
 
 var (
 	mu   sync.Mutex
-	hwnd uintptr    // 0 = 未绑 UI, 降级 stderr
+	hwnd uintptr   // 0 = 未绑 UI, 降级 stderr
 	out  io.Writer = os.Stderr
 )
 

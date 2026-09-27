@@ -1,11 +1,11 @@
 // Package agent — loop_test.go
 //
 // 测三件事：
-//   1. Loop.Run() 走完一条 user → assistant(text) 的最短路径
-//   2. Loop.Run() 走 user → assistant(tool_call) → user(tool_result) → assistant(text) 的多轮
-//   3. Loop.Run() max turns 上限 + ctx cancel
-//   4. history.go ClipHistory / ClipImages 的边界
-//   5. verdict.go 的 step 记录 + String 输出
+//  1. Loop.Run() 走完一条 user → assistant(text) 的最短路径
+//  2. Loop.Run() 走 user → assistant(tool_call) → user(tool_result) → assistant(text) 的多轮
+//  3. Loop.Run() max turns 上限 + ctx cancel
+//  4. history.go ClipHistory / ClipImages 的边界
+//  5. verdict.go 的 step 记录 + String 输出
 //
 // mock LLM 走 httptest；tool 走真实 tools.RunByName（用 help 这种无副作用的）。
 package agent

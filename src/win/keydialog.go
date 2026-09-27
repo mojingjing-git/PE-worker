@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	idKeyEdit   = 1201
-	idKeySave   = 1202
-	idKeyOKBtn  = 1203
-	idKeyCancel = 1204
+	idKeyEdit    = 1201
+	idKeySave    = 1202
+	idKeyOKBtn   = 1203
+	idKeyCancel  = 1204
 	idKeyBaseURL = 1210
 	idKeyModel   = 1211
 	// 协议预设 radio（用户可手填 base/model 覆盖）
@@ -66,11 +66,11 @@ const (
 // keydialog 状态（package-level global，sub loop 期间读写）。
 // 每次 PromptAPIKey 入口 reset。
 var (
-	keyDialogClassReg    bool
-	keyDialogClassName16 *uint16
-	keyDialogResultKey   string
-	keyDialogResultSave  bool
-	keyDialogResultOK    bool
+	keyDialogClassReg       bool
+	keyDialogClassName16    *uint16
+	keyDialogResultKey      string
+	keyDialogResultSave     bool
+	keyDialogResultOK       bool
 	keyDialogResultProvider string // "openai" / "anthropic"
 	keyDialogResultBaseURL  string
 	keyDialogResultModel    string
@@ -78,7 +78,7 @@ var (
 	// radio 切换 → 改 base URL / model 用
 	keyDialogHwnd        uintptr
 	keyDialogBaseURLHwnd uintptr
-	keyDialogModelHwnd    uintptr
+	keyDialogModelHwnd   uintptr
 )
 
 // 标准 Win32 控件 class 名（lazy alloc 一次）
@@ -139,7 +139,7 @@ func RegisterKeyDialogClass() error {
 	cls.WndProc = syscall.NewCallback(keyDialogWndProc)
 	cls.HInstance = hInst
 	cls.HCursor = loadCursor(0, IDC_ARROW)
-	cls.HbrBackground = 16 + 1 // COLOR_BTNFACE+1
+	cls.HbrBackground = COLOR_BTNFACE_BRUSH // COLOR_BTNFACE+1 = 16
 	cls.ClassName = name
 
 	atom, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&cls)))
@@ -288,13 +288,14 @@ func keyDialogCollectResult(hwnd uintptr) {
 
 // onKeyDialogCreate 建控件。
 // 布局 (520x250):
-//   y=10:  label "协议预设:" + 2 radio (一行: OpenAI 格式 / Anthropic 格式)
-//   y=44:  label "Base URL:" + edit  (用户可手填覆盖)
-//   y=72:  label "Model:" + edit    (用户可手填覆盖)
-//   y=100: hint "OpenAI 格式: POST {base}/chat/completions, Bearer auth;  Anthropic 格式: POST {base}/v1/messages, x-api-key auth"
-//   y=122: label "API Key:" + password edit
-//   y=158: checkbox "保存到磁盘"
-//   y=200: OK / Cancel buttons
+//
+//	y=10:  label "协议预设:" + 2 radio (一行: OpenAI 格式 / Anthropic 格式)
+//	y=44:  label "Base URL:" + edit  (用户可手填覆盖)
+//	y=72:  label "Model:" + edit    (用户可手填覆盖)
+//	y=100: hint "OpenAI 格式: POST {base}/chat/completions, Bearer auth;  Anthropic 格式: POST {base}/v1/messages, x-api-key auth"
+//	y=122: label "API Key:" + password edit
+//	y=158: checkbox "保存到磁盘"
+//	y=200: OK / Cancel buttons
 func onKeyDialogCreate(hwnd uintptr) {
 	hInst, _, _ := pGetModuleHandleW.Call(0)
 
@@ -327,7 +328,7 @@ func onKeyDialogCreate(hwnd uintptr) {
 			hwnd, uintptr(id), hInst, 0,
 		)
 		if checked {
-			pSendMessageW.Call(hCtrl, 0x00F1, 1, 0) // BM_SETCHECK = 0x00F1, BST_CHECKED = 1
+			pSendMessageW.Call(hCtrl, BM_SETCHECK, BST_CHECKED, 0)
 		}
 		return hCtrl
 	}
@@ -549,7 +550,7 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 	}
 	provHwnd, _, _ := pGetDlgItem.Call(dlgHwnd, uintptr(provID))
 	if provHwnd != 0 {
-		pSendMessageW.Call(provHwnd, 0x00F1, 1, 0) // BM_SETCHECK
+		pSendMessageW.Call(provHwnd, BM_SETCHECK, BST_CHECKED, 0)
 	}
 
 	// 预填 base URL（existingURL 优先，否则 provider default）

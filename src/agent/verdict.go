@@ -15,9 +15,9 @@
 //	if !vd.OK() { t.Fatal(vd.String()) }
 //
 // 特性：
-//	- 每步 OK/FAIL 都记，最后 Print() 时按 PASS/FAIL 列出
-//	- 总评：所有 step 都 OK → PASS；任一 FAIL → FAIL
-//	- 线程安全（step append 用 mutex）
+//   - 每步 OK/FAIL 都记，最后 Print() 时按 PASS/FAIL 列出
+//   - 总评：所有 step 都 OK → PASS；任一 FAIL → FAIL
+//   - 线程安全（step append 用 mutex）
 package agent
 
 import (

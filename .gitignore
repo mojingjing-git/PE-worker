@@ -17,12 +17,57 @@ bin/
 obj/
 
 # ---- dist/ 里的 spike 产物要保留（docs/08 让用户直接拷 U 盘） ----
+# 改成显式枚举而不是全目录放行：之前 `!dist/spike386/*.exe` 会在 build.cmd
+# 新增 spike 后静默把新产物纳入 git 跟踪，产生没人 review 的二进制 diff
+# （docs/11 §S6-7）。新增 spike 时记得同步加到这里。
+#
+# !! 顺序要求（git 后匹配覆盖先匹配，复审实测确认）:
+#    兜底忽略规则必须写在下面的 `!` 枚举**之前**，否则它会把整块白名单作废 ——
+#    `git add dist/spike64/richedit.exe` 会直接报 "ignored"，而文件就在磁盘上。
+#    改这块时先放兜底、再放枚举。
+dist/spike386/*.exe
+dist/spike64/*.exe
+
 !dist/
-!dist/spike386/*.exe
-!dist/spike64/*.exe
+!dist/spike386/hello.exe
+!dist/spike386/gui.exe
+!dist/spike386/dlls.exe
+!dist/spike386/https.exe
+!dist/spike386/job.exe
+!dist/spike386/hta.exe
+!dist/spike386/oem2utf8.exe
+!dist/spike386/richedit.exe
+!dist/spike386/screenshot.exe
+!dist/spike64/hello.exe
+!dist/spike64/gui.exe
+!dist/spike64/dlls.exe
+!dist/spike64/https.exe
+!dist/spike64/job.exe
+!dist/spike64/hta.exe
+!dist/spike64/oem2utf8.exe
+!dist/spike64/richedit.exe
+!dist/spike64/screenshot.exe
+
 # ---- dist/ 根下的 smith.exe / smith64.exe 也保留（Phase 1 产物） ----
 !dist/smith.exe
 !dist/smith64.exe
+
+# ---- ⚠️ dist/ 里绝不 入仓的运行时文件 ----
+# dist/ 是"拷 U 盘交付"的目录，但运行时会在自己旁边写这些文件。
+# smith.key 是真实 API key —— 绝不能进版本库。
+# （docs/11 §S8-10：dist/ 里曾躺着一把真实 key）
+dist/smith.key
+dist/smith.ini
+dist/*.log
+dist/*.session.log
+
+# ---- 改名 owl->smith 之前的旧名残留，兜底排除 ----
+# PLAN.md / smith.ini.example 里还残留 owl.key（docs/11 §S8-2）。
+# 用户照 example 配出的就是 owl.key，不兜底会被 `git add .` 提交进仓库。
+owl.key
+owl.ini
+.tmp/owl.key
+.tmp/owl.ini
 
 # ---- PE 探针运行时写的测试文件 ----
 *.pe_spike_*.txt

@@ -11,9 +11,11 @@ import (
 
 type psTool struct{}
 
-func (psTool) Name() string        { return "ps" }
-func (psTool) Description() string { return "列运行中进程。args 可选: <name filter substring>。" }
-func (psTool) Risk() RiskLevel     { return RiskRead }
+func (psTool) Name() string { return "ps" }
+func (psTool) Description() string {
+	return "列运行中进程。args 可选: <name filter substring>。"
+}
+func (psTool) Risk() RiskLevel { return RiskRead }
 
 func (psTool) Run(_ *Context, args string) (Result, error) {
 	procs, err := win.SnapshotProcesses()

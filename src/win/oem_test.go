@@ -3,7 +3,9 @@
 // Package win: oem_test.go 验证 OEMToUTF8（H-1）。
 //
 // GBK fixture 的码位由 Python gbk 编码器独立生成（勿手算）：
-//   "中文字体测试" → D6 D0 CE C4 D7 D6 CC E5 B2 E2 CA D4
+//
+//	"中文字体测试" → D6 D0 CE C4 D7 D6 CC E5 B2 E2 CA D4
+//
 // 在 OEMCP=936（中文 Windows/PE）的主机上，MultiByteToWideChar(CP_OEMCP)
 // 会把这些字节按 GBK 解回正确的 UTF-8。
 package win

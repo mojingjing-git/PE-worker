@@ -23,9 +23,11 @@ const runScriptTimeoutSec = 120
 
 type runScriptTool struct{}
 
-func (runScriptTool) Name() string        { return "run_script" }
-func (runScriptTool) Description() string { return "把脚本写到临时 .bat 文件并执行。脚本必须 ASCII（不传中文）。不经白名单。危险操作需要 confirm。" }
-func (runScriptTool) Risk() RiskLevel     { return RiskDangerous }
+func (runScriptTool) Name() string { return "run_script" }
+func (runScriptTool) Description() string {
+	return "把脚本写到临时 .bat 文件并执行。脚本必须 ASCII（不传中文）。不经白名单。危险操作需要 confirm。"
+}
+func (runScriptTool) Risk() RiskLevel { return RiskDangerous }
 
 func (runScriptTool) Run(ctx *Context, args string) (Result, error) {
 	if strings.TrimSpace(args) == "" {

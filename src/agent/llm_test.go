@@ -1,9 +1,9 @@
 // Package agent — llm_test.go
 //
 // 用 httptest 模拟两个 provider，验证：
-//   1. 请求体 JSON 形状正确（按各自 wire 格式）
-//   2. 响应解析正确（text / tool_calls / reasoning_content / 错误）
-//   3. 错误透传（4xx body 返出来 / 5xx 重试 / 网络错误重试到上限）
+//  1. 请求体 JSON 形状正确（按各自 wire 格式）
+//  2. 响应解析正确（text / tool_calls / reasoning_content / 错误）
+//  3. 错误透传（4xx body 返出来 / 5xx 重试 / 网络错误重试到上限）
 //
 // 不用 TLS 测：TLS 路径有 spike/https 把关，这里只验 wire 格式。
 // 把 Server 当 HTTP 用即可（agent.NewClient 不强求 https scheme）。
