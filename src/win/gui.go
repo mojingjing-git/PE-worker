@@ -50,6 +50,18 @@ const (
 // COLOR_BTNFACE_BRUSH 是同一值的两个真相源。已删除，统一用常量。
 
 // global state (UI 线程独占, 不并发访问)
+//
+// ⚠️ **UI 线程独占约定**（2026-09-28 复审补充，务必遵守）：
+//
+//	这里的 g* 句柄、OnSend/OnStop/OnMainWindowCreated 回调、gTickCount
+//	**全部是 UI 线程独占**。其它 goroutine（尤其 main.go:172 起的
+//	runWorker）**禁读禁写**。
+//
+//	当前**没有**并发问题，但这是**靠约定而非机制保证**的 —— 与 T0 修掉的
+//	wstrKeep 无锁 append 属于同一类风险。任何人将来在 worker 里读 gHwnd、
+//	或给 gTickCount 加个状态栏显示，就复现 T0 那个坑（随机花屏、无法复现）。
+//
+//	真要跨线程读，请像 wstrKeep 那样加锁，或改用 PostMessage 走 UI 线程。
 var (
 	gHwnd     uintptr
 	gLog      uintptr

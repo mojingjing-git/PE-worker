@@ -109,11 +109,19 @@ import "peagent/win"            // 错误：会找不到
 - **spike 产物是逐个枚举放行，不是整目录**：`dist/spike{386,64}/*.exe` 先忽略、
   再对 9 个已登记的 spike 逐个 `!` 放行。原因（commit `4581a9d` / docs/11 §S6-7）：
   整目录放行会让 `build.cmd` 新增 spike 时静默把新二进制纳入跟踪，产生没人
-  review 的二进制 diff。**新增 spike 时必须同步在 `.gitignore` 里登记**，
-  否则产物会以 `??` 状态一直飘着（`git add .` 时会被静默吞进下一个 commit）。
+  review 的二进制 diff。**新增 spike 时必须同步在 `.gitignore` 里登记**。
+  - ⚠️ **真实后果是"悄悄丢"而不是"悄悄吞"**：未登记的 spike 产物被
+    `.gitignore` 静默丢弃 —— `git status` **看不到**它、`git add .` **不会**
+    加它、显式 `git add` 会被拒（"path is ignored"）。结果是你以为"拷 U 盘
+    的东西在版本控制里"，实际 clone 出来的仓库**缺这些验证产物**。
+  - ⚠️ **顺序约束（改这块时最容易踩）**：兜底忽略规则**必须**写在 `!` 枚举
+    **之前**。git 是"后匹配覆盖先匹配"，放反了会让整块白名单作废
+    （复审实测：把 `dist/spike386/*.exe` 挪到 `!dist/spike386/hello.exe` 之后，
+    hello.exe 立刻变成 IGNORED）。
 - `.tmp/` / `.workbuddy/` 完全排除（Mavis runtime + 工作缓存）
-- `dist/smith.key` / `dist/smith.ini` / `dist/*.log` 也排除 —— dist/ 是"拷 U 盘交付"
-  的目录，但运行时会在自己旁边写这些文件，`smith.key` 是真实 API key
+- `dist/smith.key` / `dist/smith.ini` / `dist/*.log` / `dist/*.session.log` 也排除
+  —— dist/ 是"拷 U 盘交付"的目录，但运行时会在自己旁边写这些文件，
+  `smith.key` 是真实 API key，`smith.session.log` 是真实 LLM 对话（隐私同级）
 
 **新建可执行产物时**：要么改 `.gitignore` 放行，要么不 commit（看是不是用户要拷 U 盘的产物）。
 
@@ -224,7 +232,20 @@ go test -v -run TestE2E ./src/test/...
 1. **GUI 测试**：WM 命令循环阻塞 → 没法 `go test` 验证 GUI 行为。改 gui.go 后**至少** `386 + amd64 build` + 手动跑 `dist/smith.exe`。
 2. **386 struct 对齐**：`wstrKeep`、`jobExtLimitInfo`、`processEntry32` 等跨架构结构体大小不同；用 `unsafe.Sizeof` 验，不要凭直觉。
 3. **Mock LLM 测试**：用 `httptest.NewServer`（HTTP），不是 HTTPS。生产路径的 TLS 在 `spike/https` 验证，本机 mock 只验 wire 格式。
-4. **spike/* 不可 import**：是独立 main 程序，import 会循环。
+4. **spike/* 不可 import**：是独立 main 程序，import 会循环
+
+> ⚠️ **spike 产物不在门禁保护范围内**（2026-09-28 复审实测确认）：
+>
+> - `build.cmd` 只构建 `dist\smith.exe` / `smith64.exe`，**不构建 spike**
+> - `verify-pe.ps1` 也只校验这两个
+> - 实测 9 个 spike exe 的 PE Subsystem **全是 3 (CONSOLE)** —— 这对 spike
+>   是**合理的**（它们就是要看 stdout 的控制台诊断程序），与主产品的
+>   `Subsystem==2` 断言不是同一套规则，两者不冲突
+> - 后果：**"重建 dist/" 不会更新 spike 产物**，它们会静默漂移
+>
+> 所以：改 spike 源码后必须**手工重建对应 exe** 并自己 commit：
+> `go build -trimpath -ldflags "-s -w" -o dist\spike386\xxx.exe .\spike\xxx`
+> （`GOARCH` 386 / amd64 各一次）。
 5. **中文 path + `git add path/`**：trailing slash 会让 git 报 "fatal: bad config"，去掉。
 6. **PowerShell 不支持 `&&`**：用 `;`。
 7. **PE 真机测试**：需要 Win7/10/11 PE 镜像 + 虚拟机，本机跑不了 → 用 `dist/spike386/*.exe` 拷 U 盘进 PE 验（见 `docs/08-PE测试清单.md`）。

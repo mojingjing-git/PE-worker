@@ -112,11 +112,11 @@ func TestHold_ConcurrentNoLoss(t *testing.T) {
 	}
 }
 
-// TestWstrKeep_NoResetInCode 把 M1 的"永不 [:0] 重置"钉成可执行门禁。
+// TestWstrKeep_GrowsAfterPtr 把 M1 的"永不 [:0] 重置"钉成可执行门禁。
 //
 // 原注释说"即使有'满了回收'的设计也是定时炸弹"，但那是注释 ——
-// 没有任何东西会阻止后人真的写一行 `wstrKeep = wstrKeep[:0]`。
-func TestWstrKeep_NoResetInCode(t *testing.T) {
+// 没有任何东西会阻止后人真的写一行 `wstrKeep = wstrKeep[:0]`。`r`n//`r`n// 覆盖范围说明（复审订正）：这是**运行期行为检查**，不是代码扫描。`r`n// 能抓到"每次 Ptr 都重置"，抓不到"每 10000 条重置一次"这类条件重置 ——`r`n// 名字不要暗示它比这更强。
+func TestWstrKeep_GrowsAfterPtr(t *testing.T) {
 	// 记录当前长度，跑一遍常规路径，确认不会被清空
 	before := len(wstrKeep)
 	if _, err := Ptr("no-reset-probe"); err != nil {
