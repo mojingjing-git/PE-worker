@@ -166,8 +166,19 @@ func Run() int {
 	}
 	for {
 		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
-		if int32(r) <= 0 {
-			break // 0 = WM_QUIT, -1 = 错误
+		// 【S7-3】分三档，不能 <= 0 一起 break：
+		//   >0 正常消息 / 0 WM_QUIT（正常退出）/ -1 **错误**（消息队列坏掉）
+		// 原实现把 -1 当 WM_QUIT 静默吞掉，Run() 还返 0 → main.go 记
+		// "gui returned code=0"，用户看不出任何异常。PE 里表现为 GUI 毫无
+		// 预兆地关掉、agent 进程一起消失。
+		// spike/gui/main.go:393-402 早就拆开处理并留了注释（二轮审计 C8），
+		// 产品代码退化回了合并分支。-1 时返 3（与 main.go 文档的
+		// "3 = worker/GUI 异常" 语义一致，见 main.go 退出码约定）。
+		if int32(r) < 0 {
+			return 3
+		}
+		if r == 0 {
+			break
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
@@ -231,17 +242,25 @@ func utf16ToRunes(b []uint16) []rune {
 	return out
 }
 
+// emptyNUL 是一个**包级**的空 UTF-16 字符串（单个 NUL 终止符）。
+//
+// 【S7-4】原来的 utf16Ptr0() 是：
+//
+//	func utf16Ptr0() *uint16 { var zero uint16; return &zero }
+//
+// 它返回的是**已销毁栈帧**的地址。调用方立刻 uintptr(unsafe.Pointer(...))
+// 交给 WM_SETTEXT，函数返回后该栈槽会被 SendMessageW 自己的调用帧复用覆写。
+// 项目在 wstr.go 里专门提供了 Ptr/Hold 保活机制，这里却绕过了 —— 读已复用
+// 的栈内存，Win32 可能读到非 0 垃圾并把它当成字符串长度，写出一串乱码。
+// 属于不可复现的随机故障，PE 里排查成本极高。
+var emptyNUL = [1]uint16{0}
+
 // clearInput 清空输入框（Send 后）。
 func clearInput() {
 	if gInput != 0 {
-		pSendMessageW.Call(gInput, WM_SETTEXT, 0, uintptr(unsafe.Pointer(utf16Ptr0())))
+		pSendMessageW.Call(gInput, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&emptyNUL[0])))
+		KeepAlive(&emptyNUL)
 	}
-}
-
-// utf16Ptr0 返一个指向空 NUL 的 *uint16（WM_SETTEXT 用来清空）。
-func utf16Ptr0() *uint16 {
-	var zero uint16
-	return &zero
 }
 
 // forceOnPrimaryMonitor 把窗口强制放到主显示器工作区左上角。
@@ -316,7 +335,8 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 			return 0
 		case idLogClear:
 			// 清空日志（用空串 WM_SETTEXT；utf16Ptr0 是 NUL 指针）
-			pSendMessageW.Call(gLog, WM_SETTEXT, 0, uintptr(unsafe.Pointer(utf16Ptr0())))
+			pSendMessageW.Call(gLog, WM_SETTEXT, 0, uintptr(unsafe.Pointer(&emptyNUL[0])))
+			KeepAlive(&emptyNUL)
 			return 0
 		case idLogSave:
 			saveLogToFile()

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 )
 
 // anthropicVersion 锁死。改版本会让 wire 格式变。
@@ -90,7 +89,9 @@ func (c *anthropicClient) Chat(ctx context.Context, req Request) (Response, erro
 	if err != nil {
 		return Response{}, fmt.Errorf("llm: anthropic: marshal request: %w", err)
 	}
-	httpReq, err := http.NewRequest("POST", strings.TrimRight(c.cfg.BaseURL, "/")+"/v1/messages", bytes.NewReader(body))
+	// base URL 自适应：用户已带 `/v1` 就不重复追加；没带就补 /v1 再拼 messages。
+	// 跟 openai 分支共用 joinAPIPath（CHANGELOG C-4 那个 `/v1/v1/messages` 404）。
+	httpReq, err := http.NewRequest("POST", joinAPIPath(c.cfg.BaseURL, "messages"), bytes.NewReader(body))
 	if err != nil {
 		return Response{}, err
 	}

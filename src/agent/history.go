@@ -80,27 +80,70 @@ func ClipHistory(m []Message) []Message {
 	out := make([]Message, 0, systemLen+len(tail))
 	out = append(out, head...)
 	out = append(out, tail...)
-	// 配对修复：如果 out 第一条非 system 消息是 assistant（说明我们切在了一对 user→assistant 中间），
-	// 削到第一个 user/tool，保证发到 LLM 的第一条非 system 消息必须是 user/tool
+	// 配对修复：发给 LLM 的第一条非 system 消息必须是 **user**。
+	//
+	// 原因（两条都是审计实测复现的真 400）：
+	//
+	//	(a) 切在 assistant 中间 → 修复逻辑已有，处理成"跳到下一个 user/tool"。
+	//	(b) 切在 **tool** 中间 → 原实现完全没处理！tool 消息的父
+	//	    assistant(tool_calls) 被切掉了，OpenAI 直接报
+	//	    "messages with role 'tool' must be a response to a preceding
+	//	     message with 'tool_calls'"，Anthropic 报 tool_result 无对应 tool_use。
+	//	    本会话之后**每次请求都 400**，用户只能重启进程。
+	//	    触发门槛很低：40 条滑窗 ≈ 15 轮工具调用，14 个工具的 agent 很容易到。
+	//
+	// 修法：起点只允许是 user。若起点落在 tool/assistant 上，就向前回退到
+	// 最近一条"带 tool_calls 的 assistant"（那才是这批 tool 的合法父节点）；
+	// 再往前退到 user。
+	msgStart := -1
 	for i := 0; i < len(out); i++ {
 		if out[i].Role == RoleSystem {
 			continue
 		}
-		if out[i].Role == RoleAssistant {
-			// 找到 head 之后第一个 user/tool
-			for j := i + 1; j < len(out); j++ {
-				if out[j].Role == RoleUser || out[j].Role == RoleTool {
-					out = append([]Message{}, out[j:]...)
-					return out
-				}
-			}
-			// 全是 assistant（极端）：返回空
-			return []Message{}
+		if out[i].Role == RoleUser {
+			msgStart = i
+			break
 		}
-		// out[i] 是 user 或 tool，符合配对
-		return out
+		// 非 user 开头：向前回退找带 tool_calls 的 assistant 及其 user
+		back := -1
+		for j := i - 1; j >= 0; j-- {
+			if out[j].Role == RoleAssistant && len(out[j].ToolCalls) > 0 {
+				back = j
+				break
+			}
+		}
+		if back < 0 {
+			// 找不到合法父节点：只保留 system 段，绝不能返回空 messages。
+			// 返空会让上游 400（MAJOR-3）。
+			return append([]Message{}, head...)
+		}
+		// 从 back 往前找 user 作为真正的起点
+		for j := back; j >= 0; j-- {
+			if out[j].Role == RoleUser {
+				msgStart = j
+				break
+			}
+		}
+		if msgStart < 0 {
+			return append([]Message{}, head...)
+		}
+		break
 	}
-	return out
+	if msgStart < 0 {
+		// 全是 system（或空）—— 保留 system，不返回空
+		return append([]Message{}, head...)
+	}
+	// 起点落在 tail 里时，**必须把 head(system 段) 拼回去**。
+	// out = head + tail，直接切 out[msgStart:] 会把 system 一起丢掉 ——
+	// [system, user×N] 这种"全是 user、没有 tool"的常见历史就会触发
+	// （回归门禁 TestClipHistory_KeepsSystem）。
+	if msgStart >= len(head) && len(head) > 0 {
+		merged := make([]Message, 0, len(head)+len(out)-msgStart)
+		merged = append(merged, head...)
+		merged = append(merged, out[msgStart:]...)
+		return merged
+	}
+	return out[msgStart:]
 }
 
 // ClipImages 削图片（Phase 4 占位实现）。

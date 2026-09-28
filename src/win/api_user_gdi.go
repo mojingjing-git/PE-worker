@@ -13,9 +13,13 @@ import "syscall"
 var (
 	user32 = syscall.NewLazyDLL("user32.dll")
 	gdi32  = syscall.NewLazyDLL("gdi32.dll")
+
+	// IsDialogMessageW (S7-1): 对话框的 Enter/Esc/Tab 键盘行为**只**由它实现,
+	// 不是父窗口 WndProc 的 WM_KEYDOWN —— 焦点在子 EDIT 上时按键不冒泡。
+	// 缺它 => 首次运行对话框 Enter 无反应 / Esc 关不掉, 只能点右上角 X。
+	pIsDialogMessageW = user32.NewProc("IsDialogMessageW")
 )
 
-// user32 procs
 var (
 	// 窗口 / 类
 	pCreateWindowExW     = user32.NewProc("CreateWindowExW")

@@ -9,13 +9,12 @@
 package tools
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
+	"peagent/src/logx"
 	"peagent/src/win"
 )
 
@@ -33,23 +32,38 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	if strings.TrimSpace(args) == "" {
 		return Result{}, errors.New("exec: empty command")
 	}
+	// 【S5-审计发现】ctx 为 nil 时下面 `ctx.Confirm` / `ctx.Config` 会 panic。
+	// TestExec_Empty 传了 nil 但被 empty args 提前 return 挡住，一直没暴露。
+	// 工具注册表允许 RunByName(ctx=nil)，所以这里必须兜住。
+	if ctx == nil {
+		ctx = &Context{}
+	}
 
 	// confirm 交互
 	if ctx.Confirm != nil && !ctx.Confirm(fmt.Sprintf("exec: %q", args)) {
 		return Result{Text: "user declined"}, nil
 	}
 
-	// 白名单软护栏：首 token 不在白名单就 warn（不阻断）
+	// 白名单：不在名单内 → warn 但**不阻断**（PLAN §0.6 B8：白名单是软护栏 +
+	// 审计，不是安全边界）。
+	//
+	// 审计发现这里原本是**空 body + `// TODO: 接入 logx.Warn`**，也就是两层护栏
+	// 实际阻力都是 0：白名单不吭声，而 confirm 回调当前恒返 true。
+	// 2026-09-28 决策：维持 auto-yes，但把审计痕迹做全 —— 每次越界执行都留下
+	// 可追溯记录，事后能从 smith.log 还原到底跑了什么。
 	if ctx.Config != nil && len(ctx.Config.Whitelist) > 0 {
-		first := strings.Fields(args)[0]
-		if !containsToken(ctx.Config.Whitelist, first) {
-			// 不阻断, 仅提示（白名单是软护栏）
-			// TODO: 接入 logx.Warn
+		if fields := strings.Fields(args); len(fields) > 0 {
+			if first := fields[0]; !containsToken(ctx.Config.Whitelist, first) {
+				_ = logx.Warn("!! exec: 首 token %q 不在白名单内，已放行（软护栏不阻断） cmd=%q",
+					first, args)
+			}
 		}
 	}
 
-	// 用 cmd /c 让 cmd.exe 处理内建命令 (dir/cd/...)
-	cctx, cancel := context.WithTimeout(context.Background(), execTimeoutSec*time.Second)
+	// 【S1-1】执行 ctx 从调用方（本轮 agent loop 的 runCtx）派生，而不是
+	// context.Background()。之前是两条平行线：用户按 Esc/Stop 时 runCtx 被取消，
+	// 但这里的 ctx 完全无感知 → 命令继续跑满 60s，GUI 无任何反应。
+	cctx, cancel := ctx.timeoutContext(execTimeoutSec)
 	defer cancel()
 
 	// 把整个 args 当 cmdline 传给 cmd /c — cmd /c 会按空格切分
@@ -57,27 +71,49 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	if ctx.Cwd != "" {
 		cmd.Dir = ctx.Cwd
 	}
-	out, err := cmd.CombinedOutput()
+	// 【S3】不能用 CombinedOutput()：它把 stdout+stderr 全部攒进一个
+	// 无上限的 bytes.Buffer。实测 `for /L %i in (1,1,3000000) do @echo ...`
+	// 还没跑完就吃掉 14.7MB 缓冲 + 43MB heap，而 PE 跑在 32MB 内存盘上，
+	// OOM 是 runtime.throw —— recover() 接不住，进程直接消失无日志。
+	// 改用限流 writer，超限时如实告诉模型省略了多少。
+	cw := newCapWriter(maxToolOutputBytes)
+	cmd.Stdout = cw
+	cmd.Stderr = cw
+	runErr := cmd.Run()
+
 	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
 	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
-	outStr, decErr := win.OEMToUTF8(out)
-	if decErr != nil {
-		outStr = string(out) // 解码失败兜底用原始字节（decErr 已在上层透传）
+	outStr := cw.String()
+	outBytes := []byte(outStr)
+	decoded, decErr := win.OEMToUTF8(outBytes)
+	if decErr == nil {
+		outStr = decoded
 	}
-	if cctx.Err() == context.DeadlineExceeded {
+	// 解码失败时保留原始字节串（decErr 会在下面的错误分支里透传，L5）
+
+	timedOut, canceled := classifyAbort(cctx)
+	if canceled && !timedOut {
+		// 用户按了 Esc/Stop —— 与"超时"是完全不同的反馈，别混为一谈
+		return Result{Text: outStr}, errors.New("exec: canceled by user (Esc/Stop)")
+	}
+	if timedOut {
 		if decErr != nil {
 			return Result{Text: outStr}, fmt.Errorf("exec: timeout after %ds (decode output: %w)", execTimeoutSec, decErr)
 		}
 		return Result{Text: fmt.Sprintf("[exec timeout %ds] partial: %s", execTimeoutSec, outStr)},
 			fmt.Errorf("exec: timeout after %ds", execTimeoutSec)
 	}
-	if err != nil {
-		// exit code != 0 也算 err, 但把 output 也带回去
+	if runErr != nil {
+		// exit code != 0 也算 err, 但把 output 也带回去。
+		// 【S3-audit】这里返回的 Result.Text 是**有效输出** —— loop 侧现在
+		// 会把它作为 "partial output" 一起回灌给模型（原来被整个丢掉，
+		// 导致 `echo hello & exit /b 1` 这种场景模型只看到 "exit status 1"
+		// 然后反复重试同一条命令直到 MaxTurns）。
 		if decErr != nil {
-			return Result{Text: outStr}, fmt.Errorf("exec: %v (decode output: %w)", err, decErr)
+			return Result{Text: outStr}, fmt.Errorf("exec: %v (decode output: %w)", runErr, decErr)
 		}
 		return Result{Text: outStr},
-			fmt.Errorf("exec: %v", err)
+			fmt.Errorf("exec: %v", runErr)
 	}
 	if decErr != nil {
 		return Result{Text: outStr}, fmt.Errorf("exec: decode output: %w", decErr)

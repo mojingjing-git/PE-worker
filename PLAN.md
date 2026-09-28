@@ -120,23 +120,28 @@ Phase 2 只有"超时、重试、错误透传"。单机抢修时断网 / 429 / 5
 - **问题**：临时 `.bat` 若按 UTF-8 写，cmd 按 OEM 代码页解读 → 中文脚本乱码、甚至命令都认不出来。**这是 A2 的镜像问题**。
 - **修正**：`read` 是 `OEM → UTF-8`，`run_script` 就要 `UTF-8 → OEM`（同一个转换函数的反向），或者**明确声明脚本只支持 ASCII** 并在工具描述里写死。
 
-**B6. `owl.ini` 从未给出完整字段表，且与 `docs/04` 打架。**
+**B6. `smith.ini` 从未给出完整字段表，且与 `docs/04` 打架。**
 - **问题**：Key 存哪有两套说法（`docs/04` 是 `keyfile = X:\tinker\key.txt`，PLAN 里又出现 `--key`），文件名还是 `tinker.ini`。实现者不知道按哪个来。
-- **修正：定一份权威字段表（`owl.ini`，UTF-8 无 BOM）**
+- **修正：定一份权威字段表（`smith.ini`，UTF-8 无 BOM）**
 
   | 段 | 键 | 默认 | 说明 |
   |---|---|---|---|
   | `[llm]` | `base` | — | 完整 chat completions URL |
   | | `model` | — | 模型名 |
-  | | `keyfile` | `owl.key` | **优先**：Key 单独一个文件（同目录） |
+  | | `provider` | `openai` | `openai` / `anthropic` / `deepseek`。**已在 `cfg/ini.go` 实现**，三个 provider 各有独立适配层（见 §3 Phase 2「provider 适配层」） |
+  | | `keyfile` | `smith.key` | **优先**：Key 单独一个文件（同目录）。与 `cfg.DefaultKeyFile = "smith.key"` 一致 |
   | | `key` | — | 兜底：直接写在这里（不推荐） |
-  | | `vision` | `0` | 1=把 `screenshot` 发给模型 |
+  | | `vision` | `0` | 1=把 `screenshot` 发给模型。**Phase 4，未实现** —— 当前无消费方，配了不生效 |
   | | `timeout` | `120` | 秒 |
   | `[agent]` | `confirm` | `1` | 1=危险操作要确认 |
   | | `whitelist` | 内置清单 | 逗号分隔 |
   | | `maxturns` | `10` | 工具循环上限 |
-  | | `imghistory` | `2` | 保留最近几轮的图片 |
+  | | `imghistory` | `2` | 保留最近几轮的图片。**Phase 4，未实现** |
   | `[ui]` | `font` / `fontsize` | 空 / `12` | 空=系统默认字体 |
+
+  > ⚠️ 本表与 `cfg/ini.go` 的实际解析行为必须一致，改 ini 字段时两边同步；
+  > `smith.ini.example` 是第三份副本。**三份不一致时以 `cfg/ini.go` 为准。**
+  > （历史：`owl → smith` 改名时本表与 example 都漏改，仍写 `owl.key` / `owl.ini` / `owl.exe` —— 见 docs/11 §S8-2。）
 
 **B7. P0-4 的验收标准设计得不对，而且工程师无法独立自测。**
 - **问题①**：原写"不捆 PEM 的对照组必须失败" —— 但**如果目标 PE 的根库较新（已经含 ISRG X1 等），对照组也会成功**，就没有对照信号了。
@@ -216,7 +221,7 @@ JOBOBJECT_EXT_...     108        144         112         144
 
 386：hello 1.46MB / gui 1.33MB / job 1.37MB / dlls 4.44MB / https 4.71MB
 amd64：hello 1.51MB / gui 1.39MB / job 1.42MB / dlls 4.56MB / https 4.83MB
-**推算正式版 owl.exe ≈ 6~8 MB（386）**，与 §5 估算吻合。
+**推算正式版 smith.exe ≈ 6~8 MB（386）**，与 §5 估算吻合。
 
 ### 还需要在真 PE 里做的（我做不了）
 
@@ -343,45 +348,90 @@ P0-1~P0-6 的 PE 侧验证。详见 `docs/07` §5、`docs/08`。
 
 ## 2. 目录结构
 
+> **本节 2026-09-28 按 `src/` 实际文件重写。** 上一版列的 5 个文件
+> （`win/api.go` / `win/dpi.go` / `tools/file.go` / `tools/sys.go` / `tools/vision.go`）
+> **从未存在** —— 见 docs/11 §S8-6。
+> 标 **[规划中，未实现]** 的条目是 Phase 4 / PLAN §3 的目标形态，**代码里没有**。
+
 ```
 PE-agent/
 ├─ PLAN.md                      ← 本文
-├─ go.mod                       (go 1.20)
-├─ build.cmd / build.sh         ← 锁死用 Go 1.20 构建，带版本断言
-├─ docs/01..05                  调研 / 工具集 / GUI / 单机方案 / 视觉
-├─ spike/                       Phase 0 的验证程序（**已通过三轮审计，留作回归测试**）
+├─ AGENTS.md / README.md / CHANGELOG.md
+├─ go.mod                       (module peagent, go 1.20)
+├─ build.cmd                    ← 锁死 Go 1.20 + 版本断言 + vet/gofmt/PE校验/test 门禁
+├─ verify-pe.ps1                PE 头校验（Subsystem / 导入表 / 体积）
+├─ smith.ini.example            配置模板（权威字段表见 §0.6 B6）
+├─ docs/01..05,07..11           专项设计（06 编号空缺）；11 = 审计整改计划 S0~S8
+├─ spike/                       Phase 0 + 前端探针（**只读，可读不可 import**，9 个程序）
 │  ├─ hello/main.go             P0-1 能不能跑 + P0-6 内存（`-alloc N`，带余量刹车）
 │  ├─ dlls/main.go              P0-2 显式 LoadDLL 声明的依赖集（不依赖网络）+ 枚举运行期模块
 │  ├─ gui/main.go               P0-3 纯 Go 建 Win32 窗口（`-secs N` 自动关）
 │  ├─ https/main.go             P0-4 五步 TLS 对照（TCP / 跳过校验 / 系统库 / 捆绑 bundle / 完整 GET）
-│  └─ job/main.go               P0-5 Job Object + 自实现杀树（`-diag` 打结构体布局）
+│  ├─ job/main.go               P0-5 Job Object + 自实现杀树（`-diag` 打结构体布局）
+│  ├─ hta/                      HTA 前端探针（含 SPIKE_REPORT.md）
+│  ├─ oem2utf8/                 OEM → UTF-8 转换探针
+│  ├─ richedit/                 RichEdit 控件探针（think 染色的可行性依据）
+│  └─ screenshot/               抓屏探针
 ├─ assets/
 │  ├─ assets.go                 `//go:embed cacert.pem`
-│  └─ cacert.pem                Mozilla CA bundle，121 张证书 / 189 KB
+│  └─ cacert.pem                Mozilla CA bundle（更新见 assets.go 注释）
 ├─ src/
-│  ├─ main.go                   入口 + 装配
+│  ├─ main.go                   入口 + boot 序列 + worker 编排
+│  ├─ tinker.c                  C 参考实现，**不编进 exe**（见本节末注）
 │  ├─ win/                      Win32 绑定层（syscall 薄封装）
-│  │  ├─ api.go                 user32 / kernel32 / gdi32 的 LazyProc
-│  │  ├─ gui.go                 窗口 + 三区布局 + 消息循环
-│  │  └─ dpi.go                 字体与屏幕尺寸
+│  │  ├─ api_kernel.go          kernel32/ntdll/advapi32 的 LazyProc
+│  │  ├─ api_user_gdi.go        user32/gdi32 的 LazyProc
+│  │  ├─ wstr.go                UTF-16 构造 + M1 持引用（wstrKeep / wstrKeepSlices）
+│  │  ├─ gui.go                 窗口 + 三区布局 + 消息循环 + 日志渲染
+│  │  ├─ keydialog.go           首次运行密钥输入对话框
+│  │  ├─ msgs.go                Win32 消息 / 窗口样式常量
+│  │  ├─ job.go                 Job Object 封装（**386 用手工字节缓冲 + 显式偏移**）
+│  │  ├─ proc.go                进程快照 + M2 双层 PID 复用防护 + 自实现杀树
+│  │  ├─ sysinfo.go             内存/OS/磁盘/主机名等（L1：全部 `(T, error)`）
+│  │  ├─ oem.go                 OEM → UTF-8（exec / run_script / read 调用）
+│  │  └─ consts_test.go         Win32 常量门禁（68 条，对照 SDK 头文件）
 │  ├─ agent/
+│  │  ├─ agent.go               公共类型
+│  │  ├─ llm.go                 客户端 + CheckRedirect / 重试 / 超时策略
+│  │  ├─ llm_openai.go          OpenAI 兼容协议（含 DeepSeek reasoning_content）
+│  │  ├─ llm_anthropic.go       Anthropic Messages 协议
 │  │  ├─ loop.go                agent loop：请求 → tool_calls → 执行 → 回填
-│  │  ├─ history.go             会话历史 + **图片裁剪**（只留最近 2 轮）
+│  │  ├─ history.go             会话历史滑窗 + 截断 + 图片裁剪 **[图片裁剪：Phase 4]**
 │  │  ├─ prompt.go              系统提示词（目标 <1000 token）
-│  │  └─ llm.go                 OpenAI 兼容 API 客户端
-│  ├─ tools/
-│  │  ├─ registry.go            工具注册表 + JSON Schema + 分发
-│  │  ├─ exec.go                exec / run_script（Job Object 杀进程树）
-│  │  ├─ file.go                read / write / edit / ls / find / hash
-│  │  ├─ sys.go                 sysinfo / diskinfo / netinfo / ps / kill
-│  │  ├─ net.go                 download
-│  │  └─ vision.go              screenshot + 图片读取
-│  ├─ cfg/ini.go                INI 解析（自己写，约 150 行）
-│  └─ logx/log.go               日志 → PostMessage 投递到 UI 线程
-└─ dist/                        构建产物
+│  │  └─ verdict.go             L4：多步结果的 VERDICT 汇总
+│  ├─ tools/                    **14 个已注册工具**
+│  │  ├─ registry.go            工具接口 + 注册表 + 分发
+│  │  ├─ context.go             Context（含 Ctx 取消信号）+ 超时组合
+│  │  ├─ read.go                ls / cat / grep / find
+│  │  ├─ write.go               write / edit / append
+│  │  ├─ net.go                 http_get / https_get（自带 CA bundle）
+│  │  ├─ ps.go                  ps
+│  │  ├─ exec.go                exec
+│  │  ├─ run_script.go          run_script
+│  │  ├─ meta.go                help / selftest
+│  │  ├─ limited_writer.go      工具输出硬上限 512KB + 截断标记
+│  │  └─ sys.go / vision.go     **[规划中，未实现]** sysinfo/diskinfo/netinfo/kill、screenshot
+│  ├─ cfg/ini.go                INI 解析（自己写）+ Save 合并模式
+│  ├─ logx/log.go               日志 → PostMessage 投递到 UI 线程
+│  └─ test/                     e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/smith.exe）
+└─ dist/                        构建产物（smith.exe / smith64.exe / spike{386,64}）
 ```
 
-> `src/tinker.c` **保留**，但角色变了：不再是待实现的骨架，而是**Win32 实现的参考** —— `exec` 的管道捕获、Job Object 杀进程树、日志裁剪那几段可以照着翻成 Go。文件名待 §8 命名确定后一起改。
+### 与 §3 阶段计划的对应（哪些还没做）
+
+| §3 规划 | 代码现状 |
+|---|---|
+| Phase 1 `exec` | ✅ 已实现（**但 Job 杀树未接入**，docs/11 §S1-2） |
+| Phase 2 agent loop / provider 适配 | ✅ 已实现（3 provider） |
+| Phase 3 P3-1 文件类 `hash` | ⛔ **未实现**（无 hash 工具） |
+| Phase 3 P3-2 系统类 `sysinfo`/`diskinfo`/`netinfo`/`kill` | ⛔ **未实现**（`win/sysinfo.go` 有底层 API，但无 tools 层工具） |
+| Phase 3 P3-3 网络类 `download` | ⚠️ 由 `http_get` / `https_get` 承担，**没有名为 `download` 的工具** |
+| Phase 4 `screenshot` + `read` 图片分支 + `attach_image` | ⛔ **未实现**（`tools/vision.go` 不存在，`Result.AttachImage` 字段已留但无写入方） |
+
+> `src/tinker.c` **保留**，但角色变了：不再是待实现的骨架，而是**Win32 实现的参考** —— `exec` 的管道捕获、Job Object 杀进程树、日志裁剪那几段可以照着翻成 Go。
+>
+> ⚠️ **注意**：`tinker.c` 里的 Job Object 杀树**尚未翻译成 Go 生产代码**。`win/job.go` 的能力来自 `spike/job`，
+> `tools/exec.go` 目前用的是 `os/exec.CommandContext`，**只杀直接子进程**。
 
 ---
 
@@ -437,7 +487,7 @@ PE-agent/
 
 | 任务 | 要点 |
 |---|---|
-| INI 配置 | `owl.ini`，按 UTF-8 读；含 `[llm]` / `[agent]` / `[ui]` 三段 |
+| INI 配置 | `smith.ini`，按 UTF-8 读；含 `[llm]` / `[agent]` / `[ui]` 三段 |
 | **CA bundle 与 TLS**（审核 A1） | `assets/cacert.pem` 用 `//go:embed` 嵌入 → `x509.NewCertPool()` + `AppendCertsFromPEM` → `tls.Config.RootCAs`。**不要用 `SystemCertPool()` + 追加**（仍会被判定为 system pool，走 CryptoAPI，追加的证书可能不被采用） |
 | LLM 客户端 | `net/http` + `encoding/json`；超时、重试、错误透传 |
 | **provider 适配层**（审核 A11） | **不要假设"OpenAI 兼容"就是统一的**：DeepSeek 走 `reasoning_content`、各家 `tool_calls` 字段不一 → 按 provider 分支的薄适配层 |
@@ -478,7 +528,7 @@ PE-agent/
 | `read` 图片分支 | `.png` / `.jpg` / `.bmp` → 返回图片内容块 |
 | 插图协议 | **工具返回文本 + 紧随其后插一条带图的 user 消息**（Anthropic / OpenAI 都通） |
 | 历史图片裁剪 | **只保留最近 2 轮的图**，更早替换成 `[截图已省略 路径]` |
-| `vision` 开关 | `owl.ini` 里 `vision = 1/0`；为 0 时**把 `screenshot` 从工具列表摘掉** |
+| `vision` 开关 | `smith.ini` 里 `vision = 1/0`；为 0 时**把 `screenshot` 从工具列表摘掉** |
 
 **验收**：在 PE 里制造一个错误对话框（或用一张现成的蓝屏截图），模型能读出里面的错误码。
 
@@ -489,10 +539,10 @@ PE-agent/
 | 任务 | 要点 |
 |---|---|
 | 命令白名单 | 默认只放行 PE 自带工具；`diskpart clean` / `format` / `del /f /s` 单独确认 |
-| 审批开关 | `owl.ini` 里 `confirm = 1/0` |
-| **首次运行体验**（审核 A5） | PE 里**没有记事本**，"填好 Key"没法做到。三种方式：① GUI 首次运行弹密钥输入框（复用已有 EDIT 控件）② `--key` 命令行参数 ③ 在开发机上预置好 `owl.ini` 一起拷进 U 盘。**文档要写明 Key 明文落在 U 盘上的风险** |
+| 审批开关 | `smith.ini` 里 `confirm = 1/0` |
+| **首次运行体验**（审核 A5） | PE 里**没有记事本**，"填好 Key"没法做到。三种方式：① GUI 首次运行弹密钥输入框（复用已有 EDIT 控件）② `--key` 命令行参数 ③ 在开发机上预置好 `smith.ini` 一起拷进 U 盘。**文档要写明 Key 明文落在 U 盘上的风险** |
 | **内存盘清理**（审核 A12） | 截图会堆在 `X:` 内存盘上（默认 512MB）；只留最近 N 张，旧的自动删。状态栏显示已运行时长（WinPE 有 72 小时强制重启） |
-| 分发形态 | `owl.exe` + `owl.ini` 两个文件；附 `winpeshl.ini` 示例（自动拉起） |
+| 分发形态 | `smith.exe` + `smith.ini` 两个文件；附 `winpeshl.ini` 示例（自动拉起） |
 | 双架构 | 386（Win7 PE 主力）+ amd64（新 PE） |
 | **构建后产物校验**（审核 A6） | build 后自动检查：依赖表里没有 `msvcrt` / `api-ms-win-crt-*`，且子系统为 GUI |
 | 真机验收 | 在真 Win7 PE 和 Win10 PE 上各跑一遍完整流程 |
@@ -535,18 +585,22 @@ PE-agent/
 | 方案 | 产物 | 体积 | 文件数 |
 |---|---|---|---|
 | 原 C 方案 | `tinker.exe` + `curl.exe` + `cacert.pem` + `ini` | ~1.8 MB | 4 个 |
-| **Go 方案** | `owl.exe`（+ `owl.ini`） | **约 7~10 MB** | **1~2 个** |
+| **Go 方案** | `smith.exe`（+ `smith.ini`） | **约 7~10 MB** | **1~2 个** |
 
 **Go 版字节数大了 4~5 倍，但换来的是：**
 - 一个文件搞定，不用管 curl 版本 / CA 证书 / DLL 依赖
 - TLS + JSON + PNG 全部白送，少了约 1500~2000 行手写代码
 - 开发效率高一个数量级（标准库直接可用）
 
-如果最终在意体积，加一步 `upx -9 owl.exe` 能压到 **约 3MB**。对 U 盘和 PE 镜像来说都不是问题（一套 PE 镜像本身 300MB~1GB）。
+如果最终在意体积，加一步 `upx -9 smith.exe` 能压到 **约 3MB**。对 U 盘和 PE 镜像来说都不是问题（一套 PE 镜像本身 300MB~1GB）。
 
 ---
 
 ## 6. 构建命令（锁死 Go 1.20）
+
+> **实际入口是根目录的 `build.cmd`**，不是本节这段示例。`build.cmd` 的顺序是
+> `vet → gofmt → build → PE 校验 → test`，并额外含禁用 API 扫描、gofmt 门禁、
+> `verify-pe.ps1` PE 头校验（docs/11 §S6）。本节只保留**三个不能省的编译开关**的原理说明。
 
 ```bat
 @echo off
@@ -561,14 +615,14 @@ set GOOS=windows
 cd /d %~dp0src
 
 set GOARCH=386
-go build -trimpath -ldflags "-s -w -H windowsgui" -o ..\dist\owl.exe .
+go build -trimpath -ldflags "-s -w -H windowsgui" -o ..\dist\smith.exe .
 if errorlevel 1 exit /b 1
 
 set GOARCH=amd64
-go build -trimpath -ldflags "-s -w -H windowsgui" -o ..\dist\owl64.exe .
+go build -trimpath -ldflags "-s -w -H windowsgui" -o ..\dist\smith64.exe .
 if errorlevel 1 exit /b 1
 
-echo [OK] dist\owl.exe (386) + dist\owl64.exe (amd64)
+echo [OK] dist\smith.exe (386) + dist\smith64.exe (amd64)
 ```
 
 三个不能省的开关：
@@ -603,7 +657,12 @@ echo [OK] dist\owl.exe (386) + dist\owl64.exe (amd64)
 - 日志前缀：`ai > you > -> <- !!`（无变化）
 - 中文昵称：「铁匠」
 
-**决策理由**：`smith` 比 `owl` 更贴 PE 应急助手的"修机器"语义；`docs/03` 讨论过 `owl` / `smith` / 其他候选，最终选 `smith`。**改名后已统一：代码、配置、文档、构建产物、测试**。
+**决策理由**：`smith` 比 `owl` 更贴 PE 应急助手的"修机器"语义；`docs/03` 讨论过 `owl` / `smith` / 其他候选，最终选 `smith`。**改名后代码、构建产物、测试、`smith.ini.example` 已统一。**
+
+> ⚠️ **不完全**：2026-09-11 改名时漏了 `PLAN.md`（本文件 §0.6 B6 / §2 / §5 / §6）与 `smith.ini.example`
+> 两处，仍写 `owl.key` / `owl.ini` / `owl.exe`。这不只是过时 —— `.gitignore` 只兜底排除了
+> `smith.key`，用户照旧名 example 配出的 `owl.key` **可能不会被忽略，`git add .` 会把 API key 提交进仓库**。
+> 已于 2026-09-28 修正（docs/11 §S8-2）；`.gitignore` 同时加了 `owl.key` / `owl.ini` 兜底。
 
 ---
 

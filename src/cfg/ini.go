@@ -214,7 +214,20 @@ func writeLLMSection(b *strings.Builder, c *Config) {
 // 策略：按行扫描，遇到 [llm] 段头就丢弃该段所有行直到下一个段头；遇到
 // [llm] 时在原地插入新写的 [llm] 段。如果文件从头到尾都没有 [llm]，
 // 末尾追加。每行后都写 \n（除最后一行）。
+//
+// ⚠️ 入口必须保证 existing 以 "\n" 结尾（见下）。原因：ini 是用户手写的，
+// "最后一行没有换行"是极常见状态。缺了这个保证，追加 [llm] 时段头会被粘到
+// 上一行末尾：
+//
+//	in : "[agent]\nconfirm = 1"          （无末尾换行）
+//	out: "[agent]\nconfirm = 1[llm]\n..."  ← 写坏
+//	→ 下次启动 Load 报 invalid bool: "1[llm]" → main.go 直接 return 1
+//	→ 一台用来救砖的 PE 机器被自己的配置文件锁死（审计实测复现）
 func mergeLLMSection(existing string, c *Config) string {
+	// 补末尾换行（只在非空且缺换行时补）。
+	if existing != "" && !strings.HasSuffix(existing, "\n") {
+		existing += "\n"
+	}
 	lines := strings.Split(existing, "\n")
 	var out strings.Builder
 	inLLM := false

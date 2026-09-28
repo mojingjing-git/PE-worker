@@ -242,6 +242,23 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 			Confirm:   c.Agent.Confirm,
 		},
 	}
+	// 【S2-1】Loop 提到 for 循环**外**。
+	//
+	// 原来 `loop := agent.NewLoop(...)` 在循环体内（而 systemPrompt / toolCtx
+	// 在循环外 —— 典型的漏提），于是每条用户输入都拿到全新 history：
+	// NewLoop 会把 history 重置成 [system]。后果：
+	//   - agent/history.go 整套（40 条滑窗 / 32KB 截断 / ClipImages）
+	//     在生产路径上**永远不可达**
+	//   - 用户连续问「看看 C 盘还剩多少」→「那 D 盘呢」，第二句模型完全没有
+	//     上下文。对一个应急助手，多轮对话是存在的理由，不是加分项。
+	//
+	// 提到循环外后，history 跨轮累积；换话题时调 loop.Reset()（暂未接 /clear）。
+	//
+	// ⚠️ 必须与 history.go 的两个 400 洞修复同批：单独提上来会让第一次长会话
+	// 就撞上"tool 消息的父 assistant 被切掉 → 本会话之后每次请求都 400"。
+	loop := agent.NewLoop(llm, toolCtx, maxTurns, systemPrompt)
+	_ = logx.Info("** ver agent loop ready (maxturns=%d, tools=%d)", maxTurns, len(loop.ToolNames()))
+
 	for {
 		// 取 user input。优先响应外层 ctx（整体进程退出），但**不**靠它处理单轮中断
 		var userInput string
@@ -250,12 +267,32 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 			return // 整体进程退出（GUI 关闭后 defer cancel 触发）
 		case userInput = <-in:
 		}
+
+		// 【关键】排空上一轮遗留的 stop 信号。
+		//
+		// stopRunCh 是**跨轮复用**的全局信号槽（缓冲 1），而 worker 空闲时阻塞在
+		// 上面的 select{ctx.Done | in}，**根本不监听 stopRunCh**。所以"空闲期按下的
+		// Stop"会变成一颗留在 channel 里的定时炸弹：下一轮 monitor goroutine 一启动
+		// 就把它取走并立刻 runCancel()，用户这条真实提问被 0ms 静默丢弃。
+		//
+		// 复现（审计实测）：
+		//   T0 worker 空闲阻塞于 select
+		//   T1 用户按 Esc → stopRunCh <- {} （buffer 0→1，无人监听，token 永久滞留）
+		//   T1 用户输入 "重启服务" → userInputCh（输入框已被 clearInput 清空）
+		//   T2 worker 唤醒 → go monitor → monitor 立即取到残留 token → runCancel()
+		//   T2 loop.Run → 0ms 返回 context canceled → GUI 只打一行 "!! loop: context canceled"
+		// PE 现场表现 = "我明明发了指令，smith 装死"。
+		select {
+		case <-stopRun:
+			_ = logx.Warn("!! 丢弃上一轮残留的 stop 信号（用户本轮请求继续）")
+		default:
+		}
+
 		// 没有 LLM 客户端：直接报"无法对话"
 		if llm == nil {
 			_ = logx.Error("!! LLM 未配置；请编辑 smith.ini 的 [llm] 段")
 			continue
 		}
-		loop := agent.NewLoop(llm, toolCtx, maxTurns, systemPrompt)
 		runCtx, runCancel := context.WithCancel(ctx)
 		// 单轮中断：把 stopRunCh 转成 ctx.Done 信号接到 runCtx 上
 		// （loop.Run 只看 ctx.Done()，不会直接读 stopRunCh）

@@ -36,16 +36,19 @@
 
 ## 特性
 
-- ✅ **单 exe 部署** —— 5.4MB (386) / 5.5MB (amd64)，无外部 DLL 依赖
+- ✅ **单 exe 部署** —— **约 5–6 MB**，无外部 DLL 依赖（> 体积由 `build.cmd` 构建时实测输出，此处勿手写精确字节数 >）
 - ✅ **双架构** —— 386 是主战场（Win7 PE 主力 32 位）
 - ✅ **GUI 三区** —— 多行日志 + 单行输入 + 状态栏（v1-M1 持引用 + LockOSThread）
 - ✅ **14 工具** —— exec / run_script / ls / cat / grep / find / write / edit / append / http_get / https_get / ps / help / selftest
 - ✅ **3 LLM provider** —— Anthropic / OpenAI / DeepSeek（DeepSeek 特有的 `reasoning_content` 单独吸收）
 - ✅ **自带 CA bundle** —— `assets/cacert.pem` 用 `//go:embed` 嵌入，绕过 PE 镜像里过时的系统根库
-- ✅ **Job Object 杀整棵进程树** —— 双层 PID 复用防护（v1-M2）
 - ✅ **早期文件日志** —— GUI 起来前就能 trace，方便排查 PE 里看不到控制台的情况
-- ✅ **Esc 中止** —— 杀当前工具调用 + 取消 LLM 请求
 - ✅ **错误透传** —— 4xx body 全文带回（PE 里没浏览器能查文档）
+- ⚠️ **Esc / Stop 中止** —— **取消信号已贯通到工具层**（`tools.Context.Ctx` + `exec` / `run_script` 从 `runCtx` 派生，见 docs/11 §S1-1）；**但杀进程树未接入**：Job Object 杀整棵进程树的代码已就绪（`win/job.go` + M2 双层 PID 复用防护），**生产路径零调用点**，见 docs/11 §S1-2。
+  → **实测后果**：Stop 只杀 `cmd.exe` 这一个直接子进程，`diskpart` / `dism` / `ping` 等孙子进程继续存活并持裸盘句柄。
+- ⚠️ **Job Object 杀整棵进程树** —— **代码就绪，尚未接入**（同上）。
+- ⛔ **未实现**（Phase 4 视觉）—— `screenshot` 工具、图片 `attach_image` 多模态回传；`vision = 1` 目前不产生任何工具。
+- ⛔ **未实现**（PLAN §3 P3-2 系统类）—— `sysinfo` / `diskinfo` / `netinfo` / `kill` 工具（底层 `win/sysinfo.go` 已有 Windows API 封装，但**没有对应的 tools 层工具**）。
 
 ---
 
@@ -72,9 +75,13 @@ build.cmd clean
 产物：
 
 ```
-dist\smith.exe     5,385,728 bytes (386,  Win7 PE 主力)
-dist\smith64.exe   5,529,600 bytes (amd64, 新 PE)
+dist\smith.exe     386    Win7 PE 主力
+dist\smith64.exe   amd64  新 PE
 ```
+
+> **体积约 5–6 MB 量级，不要在本文件手写精确字节数。**
+> 精确值由 `build.cmd` 收尾的 PE 校验步骤（`verify-pe.ps1`）实测输出，且随代码变动漂移 —— 手写的数字必然腐烂。
+> 实测口径见 docs/11 §S6。
 
 ### 配置
 
@@ -128,33 +135,41 @@ peagent/
 ├── PLAN.md                # 设计源头（决策 / 风险 / 字段表）
 ├── AGENTS.md              # AI agent 工作约定
 ├── README.md              # 本文件
+├── CHANGELOG.md           # 变更日志
 ├── go.mod                 # module peagent, go 1.20
-├── build.cmd              # 一键 vet + test + build
-├── smith.ini.example        # 配置文件模板
-├── docs/                  # 7 篇专项设计（06 编号空缺）
+├── build.cmd              # 一键 vet + gofmt + build + PE 校验 + test
+├── verify-pe.ps1          # PE 头校验（Subsystem / 导入表 / 体积）
+├── smith.ini.example      # 配置文件模板
+├── docs/                  # 10 篇专项设计（06 编号空缺；09/10/11 为前端方案与审计整改）
 │   ├── 01-WinPE-agent-开源项目调研.md
 │   ├── 02-工具集设计建议.md
 │   ├── 03-GUI设计与命名建议.md
 │   ├── 04-单机传输与部署方案.md
 │   ├── 05-视觉与截图支持设计.md
 │   ├── 07-Phase0-验证报告.md
-│   └── 08-PE测试清单.md
-├── spike/                 # Phase 0 预研（只读，5 个独立程序）
+│   ├── 08-PE测试清单.md
+│   ├── 09-HTA前端方案.md      # 未入 commit（工作区新增）
+│   ├── 10-Sciter前端方案.md    # 未入 commit（工作区新增）
+│   └── 11-审计整改计划.md      # S0~S8 八批整改的定义与实施记录
+├── spike/                 # Phase 0 预研 + 前端探针（只读，9 个独立程序）
+│   ├── job/ gui/ hello/ https/ dlls/   # Phase 0 五项
+│   └── hta/ oem2utf8/ richedit/ screenshot/   # 后续新增四项探针
 ├── assets/                # 嵌入资源
 │   ├── assets.go
 │   └── cacert.pem         # Mozilla CA bundle
 ├── src/                   # 唯一可改区
 │   ├── main.go            # 入口
-│   ├── win/               # Win32 互操作
-│   ├── agent/             # LLM 客户端 + loop
-│   ├── tools/             # 14 工具
+│   ├── tinker.c           # C 实现参考（不编进 exe）
+│   ├── win/               # Win32 互操作（api_kernel / api_user_gdi / wstr / gui / job / proc / sysinfo / oem / keydialog）
+│   ├── agent/             # LLM 客户端 + 适配层 + loop + history + verdict
+│   ├── tools/             # 14 工具（read / write / net / ps / exec / run_script / meta + limited_writer）
 │   ├── cfg/               # INI 解析
 │   ├── logx/              # 日志
-│   └── test/              # 集成测试
+│   └── test/              # 集成测试（e2e + smoke_bin）
 └── dist/                  # 产物（部分入仓）
     ├── smith.exe            # Phase 1 主产物
     ├── smith64.exe
-    └── spike{386,64}/     # 5 个 spike 程序（PE 测试用）
+    └── spike{386,64}/     # 9 个 spike 程序（PE 测试用）
 ```
 
 ---
@@ -184,19 +199,25 @@ peagent/
 
 ## 阶段进度
 
+> 批次定义见 [`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md)（S0~S8）。每批的"实施记录"章节记录**实际做了什么 / 门禁自己抓到的问题**，不要只看勾选框。
+
 - [x] **Phase 0** —— 技术预研（5 个 spike 程序 + 3 轮代码审计 + 25 个问题修复）
 - [x] **Phase 1** —— 骨架打通（GUI + exec + 14 工具 + LLM 适配 + loop + e2e 测试）
 - [x] **P2-0** —— 5 CRITICAL bug 修复（verifier 复核全 CONFIRMED）
 - [x] **P2-1** —— GUI 日志优化（word-wrap + 60000 截断 + Copy/Clear/Save 按钮 + 时间戳）
 - [x] **P2-2** —— think 块单独缩字号（EM_SETCHARFORMAT 5pt）
 - [x] **P2-4** —— 排版修复（双重 [I] 去除 + 防御性 \r\n）
-- [ ] **Batch 1** —— LLM 适配层 9 条（OEM→UTF8 / 重试 / CheckRedirect / image wire / think 剥离 等）
-- [ ] **Batch 2** —— Win 互操作 + Job 杀树接入（150+ 行大改 + spike 回归）
-- [ ] **Batch 3** —— GUI 交互 5 条（**同 PR atomic**）
+- [~] **Batch 1**（部分完成）—— LLM 适配层 9 条。**已落地**：H-1 OEM→UTF8（commit `4f7ced6`，`win/oem.go`，被 `exec.go` / `run_script.go` / `read.go` 调用）；H-3 重试 + H-4 CheckRedirect（`llm.go` `checkRedirect`，含 `x-api-key` 跨 host 剥离）、S4-2 Anthropic `/v1` 自适应、S4-4 `ResponseHeaderTimeout` 放宽至 90s、S4-5 `extractInputArg`、S4-10 scheme 校验。**未落地**：H-2 image wire / M-6 `attach_image` / M-7 think 剥离 / M-8 空 tool 占位（均属 Phase 4 多模态通道，见 docs/11 §四 "明确不做"）。
+- [~] **Batch 2**（部分完成）—— **ctx 贯通已落地**（`tools.Context.Ctx`，`exec` / `run_script` 从 `runCtx` 派生，docs/11 §S1-1）；**Job 杀整棵进程树尚未接入**（§S1-2，`CreateJobObject` / `SetKillOnJobClose` / `AssignProcessToJobObject` / `KillTreeSelfContained` 全仓**生产零调用点**，唯一调用方是各自 `_test.go`）。
+- [~] **Batch 3**（部分完成）—— `IsDialogMessage` 已接（`keydialog.go`）；**S7-6 `--console` 仍是空实现**（`main.go` 只有 `_ = *consoleFlag`），`-H windowsgui` 下 PE 里双击会闪退且无任何线索。
 - [ ] **Batch 4** —— 杂项 / 安全 / 健壮（含 L-2 kill 工具）
+- [x] **S6 产物门禁** —— `verify-pe.ps1` PE 头校验 + smoke 新鲜度断言 + **68 条 Win32 常量门禁** + gofmt 门禁（详见 docs/11 §S6 实施记录）
+- [x] **S8 文档对齐** —— README / PLAN / CHANGELOG / AGENTS / smith.ini.example 与代码现状对齐（本批次）
 - [ ] **真机 PE 验收**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）
 
-**详细变更**：见 [CHANGELOG.md](./CHANGELOG.md) | **待办计划**：见 [`.workbuddy/audit/2026-09-11-P1-audit.md`](./.workbuddy/audit/2026-09-11-P1-audit.md) §五 整改版
+**详细变更**：见 [CHANGELOG.md](./CHANGELOG.md)
+**整改依据**：见 [`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md)（S0~S8 八批）
+> ⚠️ 早期版本的本文件引用过 `.workbuddy/audit/*.md`。**该目录被 `.gitignore` 排除（`.gitignore:2`），不随仓库分发 —— clone 下来是死链。** 整改依据已整理进 `docs/11`。
 
 ---
 
@@ -221,7 +242,7 @@ peagent/
 | 6 | 不用 `GetVersionExA` | Win8.1+ 无 manifest 返假值；用 `ntdll!RtlGetVersion` |
 | 7 | 不用 `GetTickCount64` | Win7 PE 缺，会运行时炸；用 `GetTickCount` |
 | 8 | 自带 CA bundle | PE 根证书库不更新；`//go:embed` + `tls.Config.RootCAs` |
-| 9 | Job Object 杀树 | Esc 中止时用，PID 复用双层防护 |
+| 9 | Job Object 杀树 | **已决定且代码就绪，但尚未接入生产路径**（docs/11 §S1-2）。Esc 中止时用，PID 复用双层防护（M2）已在 `win/proc.go` 就位 |
 | 10 | 早期文件日志 | GUI 起来前 trace，PE 没控制台也能查 |
 
 详见 `PLAN.md`。
@@ -241,16 +262,22 @@ GOARCH=386 go test -count=1 ./src/agent/...
 GOARCH=386 go test -v -run TestE2E ./src/test/...
 ```
 
-**当前状态**：6 包全过、113 个测试 PASS（386 + amd64）。
+**当前状态**：6 包全过（386 + amd64）。
 
-| 包 | 测试数 | 覆盖 |
+> **不要在本文件手写用例总数。** 精确数以 `go test -v ./src/...` 的实际输出为准 —— 手写数字必然腐烂。
+> 核对命令（顶层 `Test*` 函数数，不含 `t.Run` 子测试）：
+> ```powershell
+> go test -list '.*' ./src/... | Select-String -Pattern '^Test' | Measure-Object
+> ```
+
+| 包 | 覆盖 | 文件 |
 |---|---|---|
-| `win` | 35 | UTF-16 持引用 / Job Object / 进程快照 / GUI 消息 |
-| `agent` | 28 | LLM 客户端（3 provider mock）/ loop / history / verdict |
-| `tools` | 22 | 14 工具全部 smoke + help/selftest 元工具 |
-| `cfg` | 12 | INI 解析 + provider/default |
-| `logx` | 5 | PostMessage 投递 + fallback sink |
-| `test` | 11 | e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/smith.exe） |
+| `agent` | LLM 客户端（3 provider mock）/ loop / history / verdict / 重定向与重试加固 | `llm.go` `llm_openai.go` `llm_anthropic.go` `loop.go` `history.go` `verdict.go` |
+| `cfg` | INI 解析 + provider/default + `Save` 合并模式防写坏 | `ini.go` |
+| `logx` | PostMessage 投递 + fallback sink | `log.go` |
+| `test` | e2e（loop+tools+cfg 串通，含 14 工具注册断言与 ctx 取消贯通）+ smoke_bin（跑 `dist/smith.exe` + 产物新鲜度） | `e2e_test.go` `smoke_bin_test.go` |
+| `tools` | 14 工具全部 smoke + 输出硬上限 + 注入防护 + 通配匹配 + edit 空 old 防护 | `read.go` `write.go` `net.go` `ps.go` `exec.go` `run_script.go` `limited_writer.go` |
+| `win` | UTF-16 持引用 / Job Object 386 字节缓冲契约 / 进程快照 / OEM→UTF8 / **Win32 常量门禁（68 条）** / GUI 消息 | `wstr.go` `job.go` `proc.go` `oem.go` `sysinfo.go` `consts_test.go` `gui.go` |
 
 ---
 

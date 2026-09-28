@@ -1,7 +1,8 @@
 // tools/meta.go: help / selftest 两个 meta 工具。
 //
 // help 列出所有已注册工具名 + 描述 + 风险等级。
-// selftest 跑 14 个工具的 smoke test（检查注册 + 描述非空 + Risk 在 enum 内）。
+// selftest 校验 14 个工具的元信息（注册数 + 描述非空 + Risk 在 enum 内）——
+// 描述里承诺了就真查, 少一个工具必须报 FAIL 而不是照样 OK（docs/11 S5-3）。
 package tools
 
 import (
@@ -24,39 +25,54 @@ func (helpTool) Run(_ *Context, _ string) (Result, error) {
 	return Result{Text: sb.String()}, nil
 }
 
+// expectRegisteredTools 是 docs/02 §3 的 14 工具清单长度。
+// 改 allToolNames(tools_test.go) 时必须同步改这里。
+const expectRegisteredTools = 14
+
 type selftestTool struct{}
 
 func (selftestTool) Name() string { return "selftest" }
 func (selftestTool) Description() string {
-	return "自检：所有工具的元信息（名/描述/风险）合法 + 注册数 == 14。"
+	return fmt.Sprintf("自检：所有工具的元信息（名/描述/风险）合法 + 注册数 == %d。", expectRegisteredTools)
 }
 func (selftestTool) Risk() RiskLevel { return RiskRead }
 
 func (selftestTool) Run(_ *Context, _ string) (Result, error) {
 	tools := All()
-	if len(tools) == 0 {
-		return Result{Text: "FAIL: 没注册任何工具"}, nil
+	var problems []string
+
+	if len(tools) != expectRegisteredTools {
+		problems = append(problems, fmt.Sprintf("注册数 = %d, 期望 %d", len(tools), expectRegisteredTools))
 	}
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("registered tools: %d\n", len(tools)))
 	badRisk := 0
 	for _, t := range tools {
-		r := t.Risk()
-		if r < RiskRead || r > RiskDangerous {
-			badRisk++
-		}
 		if t.Name() == "" {
-			sb.WriteString("  FAIL: 空 name\n")
+			problems = append(problems, "有空 name 的工具")
 		}
 		if t.Description() == "" {
-			sb.WriteString(fmt.Sprintf("  FAIL %s: 空描述\n", t.Name()))
+			problems = append(problems, fmt.Sprintf("%s 描述为空", t.Name()))
+		}
+		if r := t.Risk(); r < RiskRead || r > RiskDangerous {
+			badRisk++
 		}
 	}
 	if badRisk > 0 {
-		sb.WriteString(fmt.Sprintf("FAIL: %d 工具 Risk 越界\n", badRisk))
-	} else {
-		sb.WriteString("OK: 所有工具元信息合法\n")
+		problems = append(problems, fmt.Sprintf("%d 个工具 Risk 越界", badRisk))
 	}
+
+	// 自检失败必须第一眼可见 —— FAIL 提到首行, 且不与 "OK:" 混排。
+	if len(problems) == 0 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("registered tools: %d (expected %d)\n", len(tools), expectRegisteredTools))
+		sb.WriteString("OK: 工具数 + 元信息校验通过\n")
+		return Result{Text: sb.String()}, nil
+	}
+	var sb strings.Builder
+	sb.WriteString("FAIL: selftest 未通过\n")
+	for _, p := range problems {
+		sb.WriteString("  - " + p + "\n")
+	}
+	sb.WriteString(fmt.Sprintf("registered tools: %d (expected %d)\n", len(tools), expectRegisteredTools))
 	return Result{Text: sb.String()}, nil
 }
 

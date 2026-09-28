@@ -33,6 +33,10 @@ func (runScriptTool) Run(ctx *Context, args string) (Result, error) {
 	if strings.TrimSpace(args) == "" {
 		return Result{}, errors.New("run_script: empty script")
 	}
+	// 【S5-审计发现】ctx 可能为 nil（RunByName 允许传 nil），解引用会 panic。
+	if ctx == nil {
+		ctx = &Context{}
+	}
 
 	// confirm 交互（run_script 跳过白名单但 confirm 仍要）
 	if ctx.Confirm != nil && !ctx.Confirm(fmt.Sprintf("run_script: %d 字节脚本", len(args))) {
@@ -53,19 +57,30 @@ func (runScriptTool) Run(ctx *Context, args string) (Result, error) {
 	}
 	defer os.Remove(path) // 跑完删, PE 上 X: 内存盘, 别堆
 
-	cctx, cancel := timeoutContext(runScriptTimeoutSec)
+	// 【S1-1】从本轮 runCtx 派生，Esc/Stop 能真正中止脚本
+	cctx, cancel := ctx.timeoutContext(runScriptTimeoutSec)
 	defer cancel()
 
 	cmd := exec.CommandContext(cctx, "cmd", "/c", path)
 	if ctx.Cwd != "" {
 		cmd.Dir = ctx.Cwd
 	}
-	out, err := cmd.CombinedOutput()
+	// 【S3】限流输出，避免 CombinedOutput 把整个输出攒进内存
+	cw := newCapWriter(maxToolOutputBytes)
+	cmd.Stdout = cw
+	cmd.Stderr = cw
+	runErr := cmd.Run()
+
 	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
 	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
-	outStr, decErr := win.OEMToUTF8(out)
-	if decErr != nil {
-		outStr = string(out) // 解码失败兜底用原始字节（decErr 已在上层透传）
+	outStr := cw.String()
+	decoded, decErr := win.OEMToUTF8([]byte(outStr))
+	if decErr == nil {
+		outStr = decoded
+	}
+
+	if canceled, _ := classifyAbort(cctx); canceled {
+		return Result{Text: outStr}, errors.New("run_script: canceled by user (Esc/Stop)")
 	}
 	if cctx.Err() == context_DeadlineExceeded {
 		if decErr != nil {
@@ -74,12 +89,12 @@ func (runScriptTool) Run(ctx *Context, args string) (Result, error) {
 		return Result{Text: fmt.Sprintf("[run_script timeout %ds] partial: %s", runScriptTimeoutSec, outStr)},
 			fmt.Errorf("run_script: timeout after %ds", runScriptTimeoutSec)
 	}
-	if err != nil {
+	if runErr != nil {
 		if decErr != nil {
-			return Result{Text: outStr}, fmt.Errorf("run_script: %v (decode output: %w)", err, decErr)
+			return Result{Text: outStr}, fmt.Errorf("run_script: %v (decode output: %w)", runErr, decErr)
 		}
 		return Result{Text: outStr},
-			fmt.Errorf("run_script: %v", err)
+			fmt.Errorf("run_script: %v", runErr)
 	}
 	if decErr != nil {
 		return Result{Text: outStr}, fmt.Errorf("run_script: decode output: %w", decErr)

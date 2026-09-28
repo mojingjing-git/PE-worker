@@ -79,32 +79,55 @@ func TestSetKillOnJobClose_RealCall(t *testing.T) {
 }
 
 func TestIsProcessInJob_Smoke(t *testing.T) {
-	// 当前进程是否在某个 job 里？
-	//
-	// 实际探测（spike 实测）：在 Win11 / Win10 上 kernel32!IsProcessInJob
-	// 即便用真 handle 也 access violation (0xc0000005) —— 推测需要
-	// PROCESS_QUERY_INFORMATION (0x0400) 或更高权限，OpenProcess 在普通
-	// 用户态下被拒绝或返的 handle 权限不足。
-	//
-	// 真实用法：spike 在 admin shell 下 -hold 5 跑过 inJob=1，结论可参考。
-	// 本机 test 只验证 IsProcessInJob 函数能编译/可调用，**不**验证返回值。
+	// 断言 1：必须真的调用 IsProcessInJob，且**不崩**。
+	// 旧版这个测试因为"会崩"而 t.Skip + t.Logf，等于零断言给地雷盖章。
+	// 现在的实现是诚实降级（恒返 false, nil），所以可以真调。
 	pid, _, _ := pGetCurrentProcessId.Call()
 	const PROCESS_QUERY_INFORMATION = 0x0400
 	hProcess, _, e := pOpenProcess.Call(PROCESS_QUERY_INFORMATION, 0, uintptr(pid))
 	if hProcess == 0 {
-		t.Skipf("OpenProcess(PROCESS_QUERY_INFORMATION=0x400) 失败 (err=%v) -- 需要 admin", e)
+		t.Skipf("OpenProcess(PROCESS_QUERY_INFORMATION) 失败 (err=%v) —— 无法自进程探测，跳过", e)
 	}
 	defer pCloseHandle.Call(hProcess)
-	// 不调 IsProcessInJob -- Win10+ 用户态上 access violation，需要更高权限。
-	// 真实 inJob 检测在 spike P0-5 已验证 (本机 InJob=1)。
-	t.Logf("pid=%d OpenProcess 返 hProcess=%d (跳过 IsProcessInJob 调用，需要 admin)", pid, hProcess)
+
+	inJob, err := IsProcessInJob(hProcess)
+	if err != nil {
+		t.Fatalf("IsProcessInJob(hProcess=%#x) 返回 err=%v，期望 nil（诚实降级不应报错）", hProcess, err)
+	}
+	// 断言 2：返回值语义 —— 降级实现必须恒 false。
+	// 若这里变成 true，说明有人把探测接回来了，而探测在 Win11 实测会猝死进程。
+	if inJob {
+		t.Fatalf("IsProcessInJob 返回 true，但本实现是诚实降级，恒返 false —— " +
+			"说明有人重新接回了 kernel32!IsProcessInJob（实测 0xc0000005 猝死）")
+	}
+	t.Logf("IsProcessInJob(hProcess=%#x) = (%v, %v) —— 未崩溃，符合诚实降级契约", hProcess, inJob, err)
 }
 
 func TestIsProcessInJob_NeverPanics(t *testing.T) {
-	// 与 Smoke 相同理由：Win10+ 用户态上 IsProcessInJob 调不通。
-	// 真实 inJob 检测在 spike P0-5 admin shell 下已验证。
-	// 本层只验证函数签名可调用，不做实际 Win32 调用。
-	t.Logf("TestIsProcessInJob_NeverPanics: skip in user mode (需要 admin)")
+	// 断言：伪句柄（-1）和 0 这两个"历史上喂进去就猝死"的入参，
+	// 现在都必须安静返回 (false, nil)，不崩、不报错。
+	//
+	// 实测背景（探针，386 + amd64 双架构）：kernel32!IsProcessInJob 只要 hJob
+	// 通过句柄校验就会 AV；这里三个入参都不会走到 kernel32（实现不探测），
+	// 但本测试把"不会猝死"钉成回归门禁，防止将来有人改回探测。
+	pseudo, _, _ := pGetCurrentProcess.Call()
+	cases := []struct {
+		name     string
+		hProcess uintptr
+	}{
+		{"GetCurrentProcess() pseudo", pseudo},
+		{"NULL handle", 0},
+	}
+	for _, c := range cases {
+		inJob, err := IsProcessInJob(c.hProcess)
+		if err != nil {
+			t.Errorf("IsProcessInJob(%s = %#x) 返回 err=%v，期望 nil", c.name, c.hProcess, err)
+		}
+		if inJob {
+			t.Errorf("IsProcessInJob(%s = %#x) 返回 true，期望 false（诚实降级）", c.name, c.hProcess)
+		}
+		t.Logf("IsProcessInJob(%s = %#x) = (%v, nil) 未崩溃", c.name, c.hProcess, inJob)
+	}
 }
 
 func TestJobSizeContract_PlatformDoc(t *testing.T) {

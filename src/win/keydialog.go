@@ -14,6 +14,7 @@
 package win
 
 import (
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -74,6 +75,9 @@ var (
 	keyDialogResultProvider string // "openai" / "anthropic"
 	keyDialogResultBaseURL  string
 	keyDialogResultModel    string
+	// dialogMsgLoopFailed：子循环里 GetMessage 返回 -1（消息队列坏掉）时置位。
+	// 区别于"用户正常关闭"—— 那种情况 keyDialogResultOK 为 false 但消息循环健康。
+	dialogMsgLoopFailed bool
 
 	// radio 切换 → 改 base URL / model 用
 	keyDialogHwnd        uintptr
@@ -479,6 +483,21 @@ func onKeyDialogCreate(hwnd uintptr) {
 //   - ok:       true = 用户按 OK，false = 用户按 Cancel/Esc/关窗
 //   - err:      致命错误
 func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) (key, provider, baseURL, model string, save bool, ok bool, err error) {
+	// 【S7-2】必须在这里锁线程 —— 本函数是**全仓唯一**违反项目铁律的地方。
+	//
+	// 项目 B2 契约（PLAN §0.9 第 5 条 / spike/richedit/main.go:115 原文）：
+	// "窗口创建前必须锁线程，否则 goroutine 迁移后 SendMessage 跨线程 →
+	//  非确定性 AV（386 也中过）"。
+	//
+	// 而本函数尤其危险：它在 main.go 的 [3.5] 步被调用，**早于** win.Run()
+	// （那里才有 LockOSThread）。也就是说本函数里的 CreateWindowExW +
+	// GetMessage 子循环是**本进程的第一个消息循环**，此时没有任何锁兜底。
+	// Go 1.20 有异步抢占：goroutine 可能在建窗与进循环之间的任何一条 Go 指令
+	// （UTF16FromString 的分配、fmt 调用…）被调度到另一个 M 上。
+	// 一旦迁移，窗口的消息队列绑在建窗线程（thread A），GetMessage 却跑在
+	// thread B → 鼠标键盘全无反应 → PE 表现是"对话框点不动，只能杀进程"。
+	runtime.LockOSThread()
+
 	if err := RegisterKeyDialogClass(); err != nil {
 		return "", "", "", "", false, false, err
 	}
@@ -488,6 +507,7 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 	keyDialogResultProvider = ""
 	keyDialogResultBaseURL = ""
 	keyDialogResultModel = ""
+	dialogMsgLoopFailed = false
 	keyDialogHwnd = 0
 	keyDialogBaseURLHwnd = 0
 	keyDialogModelHwnd = 0
@@ -604,8 +624,27 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 			break
 		}
 		ret, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&msg)), 0, 0, 0)
-		if int32(ret) <= 0 {
+		// 【S7-3】GetMessage 返回值必须分三档，不能用 <= 0 一起 break：
+		//   >0  正常消息
+		//    0  WM_QUIT（正常退出）
+		//   -1  **错误**（消息队列坏掉）
+		// 原实现把 -1 当 WM_QUIT 静默吞掉，对话框"正常消失"而用户什么都
+		// 没看到。spike/gui/main.go:393-402 早就拆开处理了（二轮审计 C8），
+		// 产品代码这里退化回了合并分支。
+		if int32(ret) < 0 {
+			dialogMsgLoopFailed = true
 			break
+		}
+		if ret == 0 {
+			break
+		}
+		// 【S7-1】IsDialogMessage 必须调，否则对话框键盘行为全废：
+		// Enter(确定) / Esc(取消) / Tab(移焦点) / 默认按钮高亮都由它处理。
+		// 焦点在子 EDIT 上时按键**不会**冒泡到父窗口的 WM_KEYDOWN，所以
+		// keyDialogWndProc 里那段 VK_RETURN/VK_ESCAPE 是死代码。
+		// 返回非 0 = 该消息已被对话框消化，别再 DispatchMessage。
+		if handled, _, _ := pIsDialogMessageW.Call(dlgHwnd, uintptr(unsafe.Pointer(&msg))); handled != 0 {
+			continue
 		}
 		// 退出条件 2: 收到 WM_QUIT（极端情况，比如外层 win.Run 同时跑了——不会
 		// 在 PromptAPIKey 调用期间发生，但保险）

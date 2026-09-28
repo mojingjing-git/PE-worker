@@ -57,6 +57,17 @@ func (editTool) Run(ctx *Context, args string) (Result, error) {
 		return Result{}, fmt.Errorf("edit: read %s: %w", path, err)
 	}
 	content := string(orig)
+
+	// old 为空会打碎整个文件，并且报告"成功"。
+	// 原因：strings.Count(content, "") == len+1（≠ 0，绕过下面的"找不到"检查），
+	// 而 strings.Replace(content, "", new, -1) 会在**每个 rune 之间**插入 new。
+	// 实测 abc → XaXbXcX，工具回 "OK 替换 4 处"。
+	// 模型只要发 `path\n\nnewtext`（中间行空）就会触发 —— PE 里被改的可能是分区
+	// 配置或磁盘信息。这是全套工具里唯一"破坏数据 + 报成功"的路径。
+	if old == "" {
+		return Result{}, errors.New("edit: old 不能为空（会把整个文件打碎）；要往文件尾部加内容请用 append")
+	}
+
 	count := strings.Count(content, old)
 	if count == 0 {
 		return Result{}, fmt.Errorf("edit: 找不到要替换的内容 (path=%s)", path)

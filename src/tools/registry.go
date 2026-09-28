@@ -1,12 +1,17 @@
 // Package tools: registry.go 注册表 + 工具接口。
 //
-// 14 工具按 docs/02 §3 分层：
-//   - read   (5): ls / cat / grep / find / screenshot / read
-//   - write  (3): write / edit / append
-//   - exec   (2): exec / run_script
-//   - net    (2): http_get / https_get
-//   - meta   (2): help / selftest
-//   - sys    (1): ps (process list)
+// 实际注册的 14 个工具（按 docs/02 §3 的分层）：
+//   - read  (4): ls / cat / grep / find      ← S5 起为纯 Go 实现，不经 cmd.exe
+//   - write (3): write / edit / append
+//   - exec  (2): exec / run_script
+//   - net   (2): http_get / https_get
+//   - meta  (2): help / selftest
+//   - sys   (1): ps
+//
+// ⚠️ docs/02 §3 原计划里还有 screenshot / read / hash / sysinfo / diskinfo /
+// netinfo / kill / download —— **至今未实现**。上表是当前代码的真实状态，
+// 不要照抄 PLAN 里的清单（PLAN §3 的验收标准写了"模型自动调 diskinfo"，
+// 而 diskinfo 从未存在 —— 见 docs/11 §一）。
 //
 // v1-L1 硬规则：所有工具 Run() 返 (Result, error)。
 // docs/02 §7 6 条约定：白名单是软护栏 + confirm 拦危险 + exec 校验首 token +
@@ -63,16 +68,9 @@ type Tool interface {
 	Run(ctx *Context, args string) (Result, error)
 }
 
-// Context 是工具执行的上下文（持有 Config / Confirm 回调 / 工作目录等）。
-type Context struct {
-	// Confirm 让工具要求用户确认。true = 继续, false = 拒绝。
-	// 不需要确认的工具**不**调。
-	Confirm func(prompt string) bool
-	// Cwd 是工具执行的工作目录（默认 smith.exe 同目录）。
-	Cwd string
-	// Config 是 smith.ini 加载的配置。
-	Config *Config
-}
+// Context 是工具执行的上下文。**定义在 context.go**（S1-1 从此处移过去，
+// 因为它现在承载取消信号的透传职责，和 timeoutContext 是同一件事）。
+// 字段：Ctx / Confirm / Cwd / Config。
 
 // Config 是工具需要的 smith.ini 字段子集（独立于 cfg.Config 以避免循环 import）。
 type Config struct {

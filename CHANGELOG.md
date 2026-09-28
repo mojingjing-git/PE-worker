@@ -6,15 +6,55 @@ PE-agent (smith / 铁匠) 项目的变更日志。
 
 ---
 
-## [Unreleased]
+## [Unreleased] - 2026-09-28
+
+### 文档对齐（S8 批 · docs/11 §S8-1..S8-11）
+
+本次整改**只改文档，不改代码**。逐条都对照 `src/` 实测核实，不采信旧文档的数字。
+
+**Fixed（文档与代码的严重脱节）**：
+
+| 项 | 问题 | 实测结论 |
+|---|---|---|
+| S8-1 | README 特性表两个 ✅ 是假的：「Job Object 杀整棵进程树」「Esc 中止 —— 杀当前工具调用 + 取消 LLM 请求」 | 全仓 `CreateJobObject` / `SetKillOnJobClose` / `AssignProcessToJobObject` / `KillTreeSelfContained` **生产零调用点**，唯一调用方是各自 `_test.go`。已改为「取消信号已贯通到工具层；Job 杀树代码就绪但尚未接入 exec/run_script（见 docs/11 §S1-2）」 |
+| S8-2 | **隐私**：`PLAN.md` + `smith.ini.example` 仍是 `owl.key` / `owl.ini` / `owl.exe` | `cfg.DefaultKeyFile = "smith.key"`，旧名 key 文件不被 `.gitignore` 覆盖 → **`git add .` 会把 API key 提交进仓库**。已全部改为 `smith.*`（`owl` 仅保留在 docs/03 命名讨论与本条历史记录中） |
+| S8-3 | README 产物体积 / 测试数、CHANGELOG 仓库统计全错且互相矛盾 | 已改为**量级描述 + 实测命令**，不再手写数字（见下「仓库统计」） |
+| S8-4 | `.workbuddy/audit/*.md` 被当权威来源引用 | `.gitignore:2` 排除整个 `.workbuddy/`，clone 下来全是死链。已改为指向 `docs/11`，并显式标注"早期版本引用过该路径，不随仓库分发" |
+| S8-6 | PLAN §2 目录结构列的 5 个文件全不存在 | `win/api.go` / `win/dpi.go` / `tools/file.go` / `tools/sys.go` / `tools/vision.go` 从未存在。已按 `src/` 实际文件重写，并加「与 §3 阶段计划的对应」表标注哪些**未实现** |
+| S8-7 | PLAN B6 权威字段表缺 `provider` | `cfg/ini.go` 已实现 `[llm] provider`（openai/anthropic/deepseek），已补入字段表 |
+| S8-8 | AGENTS 硬规则表符号名偏差 | M1 的 `strKeep` → 实际 `wstrKeep` / `wstrKeepSlices`；M2 的 `job.go + proc.go` → **两层防护全在 `proc.go`**，job.go 只是 Job API 封装 |
+| S8-9 | README/AGENTS 目录结构过时 | docs 说 7 篇（实际 10 篇）、spike 说 5 个（实际 9 个） |
+| S8-11 | commit 格式被 `[shared]` / `[hta]` 前缀破坏 | 已在 AGENTS §5/提交约定标注"不要加前缀" |
+
+**Added（AGENTS 硬规则表从 5 条扩到 9 条）**：
+
+- **B2** `runtime.LockOSThread()` 必须是线程入口第一行（含 keydialog 子消息循环）
+- **V1** `win/` 的 `go vet` 必须用 `-unsafeptr=false`（uintptr ↔ unsafe.Pointer 互转是 Win32 互操作必需的）
+- **S1**（本次新学到的坑）**含 64 位成员的手写 Win32 结构体有 386 对齐风险 → 手工构造字节缓冲 + 显式偏移**。来源：386 上写 108 字节时 `SetInformationJobObject` 返 `ERROR_BAD_LENGTH` 但不抛错，`KILL_ON_JOB_CLOSE` 静默失效。现有实现见 `win/job.go` `buildJobExtLimitInfo`
+- **C1**（本次新学到的坑）**Win32 常量必须对照 SDK 头文件 + 实测，禁止凭记忆写**。真实踩坑：`WM_TIMER` 曾写成 `0x0118`（那是 `WM_SWITCHWINDOW`）。门禁见 `win/consts_test.go`（68 条断言 + `expectedCount` 覆盖度自检）
+
+**Changed**：
+
+- `smith.ini.example`：`owl.*` → `smith.*`；`vision` / `imghistory` 明确标注 **NOT IMPLEMENTED**（能解析但无消费方，配了不生效）
+- README / CHANGELOG / PLAN / AGENTS 的产物体积改为「约 5~6 MB」+ 注明由 `build.cmd` 实测，**不再手写字节数**
+- README / CHANGELOG 的测试数改为「以 `go test -list` / `go test -v` 输出为准」+ 给出核对命令
+- README 特性表新增 ⛔ 条目显式列出**未实现**的能力（`screenshot` 视觉通道、`sysinfo/diskinfo/netinfo/kill`）
+- README 阶段进度：Batch 1 第 1 条（H-1 OEM→UTF8，commit `4f7ced6`，`win/oem.go`）从 `[ ]` 改为 `[~] 部分完成`，并逐条列已落地/未落地；补 S6 产物门禁、S8 文档对齐两条 `[x]`
+
+---
+
+## [Unreleased · 上一批]
 
 ### 下一批
 - **Batch 1**（LLM 适配层 9 条 ~80 行）：H-1 OEM→UTF8 + M-9 ErrMaxTurns + L-5 空响应 + H-2 OpenAI image wire + H-3 重试空体 + H-4 CheckRedirect + M-6 attach_image + M-7 think 剥离 + M-8 空 tool 占位
+  - **H-1 OEM→UTF8 已落地**（commit `4f7ced6`）。其余状态见 docs/11 §S4。
 - **Batch 2**（Win 互操作 + Job 接入 ~150 行）：H-6 wstrKeep 加锁 + L-1 泄漏 + H-8 IsProcessInJob 签名 + H-7 Job 杀树接入 exec/run_script（大改 + spike 回归）
+  - **ctx 贯通已落地**（docs/11 §S1-1）；**Job 接入未做**（§S1-2）。
 - **Batch 3**（GUI 交互 5 条 ~40 行 / **同 PR atomic**）：M-2/M-3/M-4/M-5 + H-5
 - **Batch 4**（杂项 / 安全 / 健壮 ~120 行）：M-1 + M-10/M-11 + M-12/M-13/M-14 + L-2 kill 工具 + L-3/L-4 + L-7/L-8
 
-详见 `.workbuddy/audit/2026-09-11-P1-audit.md` §五整改版 + `2026-09-11-P1-verify.md` 7 项审核。
+**整改依据与实施记录**：[`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md)。
+> ⚠️ 本节此前引用 `.workbuddy/audit/2026-09-11-P1-audit.md` 与 `.workbuddy/audit/2026-09-11-P1-verify.md` —— **这两个文件已被 `.gitignore` 排除（`.gitignore:2`），不随仓库分发**，clone 下来是死链。整改依据已整理进 `docs/11`。
 
 ---
 
@@ -164,7 +204,7 @@ PE-agent (smith / 铁匠) 项目的变更日志。
 | P1-7 | `logx/log.go` + `win/msgs.go` |
 | P1-8 | `win/gui.go`（三区 GUI + LockOSThread + strKeep + WM_LOG_LINE 处理） |
 | P1-9a | `tools/registry.go` + `exec.go` + `run_script.go` |
-| P1-9b | `tools/` 其余 12 工具 + screenshot |
+| P1-9b | `tools/` 其余 12 工具（`read`/`write`/`net`/`ps`/`meta` 共 12；**`screenshot` 未做**，至今未实现） |
 | P1-10a | `agent/llm.go` + `prompt.go`（Anthropic/OpenAI/DeepSeek 适配层 + 15 测试） |
 | P1-10b | `agent/loop.go` + `history.go` + `verdict.go`（13 测试） |
 | P1-11 | `main.go` 启动序列 + GUI 钩子 + worker 编排 + cfg.Default/Provider |
@@ -196,35 +236,53 @@ PE-agent (smith / 铁匠) 项目的变更日志。
 |---|---|
 | 2026-09-11 | **P0 全部 5 个 spike 完成**（独立审计 + 3 轮复核） |
 | 2026-09-11 | **P1 全部 18 步完成**（GUI 骨架 + 14 工具 + 3 LLM 适配 + loop + main + build + 集成测试） |
-| 2026-09-11 | **rename owl → smith**（P1-23~28） |
+| 2026-09-11 | **rename owl → smith**（P1-23~28）。⚠️ 当时漏了 `PLAN.md` + `smith.ini.example`（2026-09-28 补） |
 | 2026-09-11 | **P2-0 5 CRITICAL 修复**（verifier 复核全 CONFIRMED） |
 | 2026-09-11 | **P2-1 GUI 日志优化**（word-wrap + 60000 截断 + Copy/Clear/Save + 时间戳） |
 | 2026-09-11 | **P2-2 think 块单独缩字号**（EM_SETCHARFORMAT CHARFORMATW 92 字节） |
 | 2026-09-11 | **P2-4 排版修复**（双重 [I] 去除 + 防御性 \r\n + 5pt 字号） |
+| 2026-09-28 | **H-1 OEM→UTF8 落地**（commit `4f7ced6`，`win/oem.go`） |
+| 2026-09-28 | **4 片并行审计 → docs/11 整改计划**（S0~S8 八批） |
+| 2026-09-28 | **S6 产物门禁**（commit `4581a9d`：`verify-pe.ps1` + 68 条 Win32 常量门禁 + gofmt 门禁） |
+| 2026-09-28 | **S8 文档对齐**（本批：README / PLAN / CHANGELOG / AGENTS / smith.ini.example） |
 
 ## 仓库统计
 
-- **32 个 commit** on `master` @ `mojingjing-git/PE-worker`
-- **6 个测试包**：agent (15+ tests) / cfg (3) / logx (10) / test (9 e2e) / tools / win (8+)
-- **2 个 spike 平台产物**：386 (5.4MB) + amd64 (5.5MB)
-- **5 个 spike 探针产物**：spike386 (5) + spike64 (5)
+> **2026-09-28 实测口径**。下面刻意不写死用例总数与产物体积 ——
+> 精确数字随每次提交漂移，写进文档必然腐烂。核对命令见各条目。
+
+- **commit 数**：`git rev-list --count HEAD`（本次核实 **46**）
+- **测试包**：6 个 —— `agent` / `cfg` / `logx` / `test` / `tools` / `win`
+  - **用例数以 `go test -list '.*' ./src/... | Select-String -Pattern '^Test'` 的输出为准**
+  - 本次核实（386，顶层 `Test*` 函数数，**不含 `t.Run` 子测试**）：
+    `agent` 50 / `cfg` 17 / `logx` 5 / `test` 11 / `tools` 59 / `win` 44
+- **主产物**：`dist/smith.exe`（386）+ `dist/smith64.exe`（amd64），各**约 5~6 MB**
+  - 精确字节数由 `build.cmd` 收尾的 `verify-pe.ps1` 实测输出（docs/11 §S6-1）
+- **spike 探针**：**9 个**，产物 `spike386`(9) + `spike64`(9) —— Phase 0 五项（job/gui/hello/https/dlls）+ 后续四项（hta/oem2utf8/richedit/screenshot）
+- **工具**：**14 个已注册**（`exec` / `run_script` / `help` / `selftest` / `ls` / `cat` / `grep` / `find` / `write` / `edit` / `append` / `http_get` / `https_get` / `ps`）
+- **未实现**：`screenshot` 等 Phase 4 视觉工具、`sysinfo` / `diskinfo` / `netinfo` / `kill`（底层 `win/sysinfo.go` 有 API 但无 tools 层工具）
 - **0 依赖外部库**（无 CGO / 无 -race / 无 go.mod 依赖）
 - **GUI 100% 原生 Win32**（user32 内建控件 + gdi32 字体，不引 comctl32 / 浏览器 / 任何库）
 
 ## 待办（按优先级）
 
-- [ ] **Batch 1**（LLM 适配层 9 条）— 解锁视觉/多模态 + 中文 PE 编码
-- [ ] **Batch 2**（Win 互操作 + Job 杀树大改）— 接入 exec/run_script 杀进程树
-- [ ] **Batch 3**（GUI 交互 5 条）— 同 PR atomic
-- [ ] **Batch 4**（杂项/安全/健壮）— 含 L-2 kill 工具
+**权威来源：[`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md)（S0~S8）。**
+
+- [x] **S0 止血批**（6 条，含 S0-5 `WM_TIMER` 常量 —— 提前并入 S6）
+- [~] **S1 接线批** —— ctx 贯通已落地（§S1-1）；**Job 杀树未接入**（§S1-2）
+- [ ] **S2 会话记忆批**（S2-1 Loop 提到 `for` 外 / S2-2 tool 首条回退 / S2-3 空 history 保 system）
+- [ ] **S3 输出上限批**（512KB 硬上限，防 OOM —— OOM 是 `runtime.throw`，`recover()` 接不住）
+- [~] **S4 LLM 适配层批** —— S4-1~S4-5 / S4-10 已落地；S4-6 tool_calls 兜底等未做
+- [ ] **S5 工具正确性批**
+- [x] **S6 产物门禁批**（`verify-pe.ps1` + smoke 新鲜度 + 68 条常量门禁 + gofmt）
+- [~] **S7 GUI 交互批** —— S7-1 `IsDialogMessage` 已接；**S7-6 `--console` 仍是空实现**（`-H windowsgui` 下 PE 里双击闪退无线索）
+- [x] **S8 文档对齐批**（本批）
 - [ ] **真机 PE 测试**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）
 
 ## 关键文档
 
-- `PLAN.md` — 设计源头（v1 第四轮 + v2 复审合并的 9 条硬规则 + 字段表 + 阶段计划）
-- `AGENTS.md` — 给 AI 编程 agent 的工作约定（5 条契约 + 步间审核 + 386/amd64 + 中文 path）
-- `.workbuddy/audit/2026-09-11-P1-audit.md` — 6 切片并行审计报告（35+ bug + 5 Batch 修复计划）
-- `.workbuddy/audit/2026-09-11-P1-verify.md` — verifier 独立审核 6 维度
-- `.workbuddy/memory/MEMORY.md` — 顶部 5 CRITICAL 摘要（永久 trace）
-- `docs/01-05, 07-08` — 7 篇专项设计（06 编号空缺）
-- `spike/*` — Phase 0 5 个独立探针（read-only）
+- `PLAN.md` — 设计源头（v1 第四轮 + v2 复审合并的 9 条硬规则 + 字段表 §0.6 B6 + 阶段计划）
+- `docs/11-审计整改计划.md` — **当前待办的权威来源**（S0~S8 批次定义 + 实施记录）
+- `AGENTS.md` — 给 AI 编程 agent 的工作约定（**9 条硬规则** + 步间审核 + 386/amd64 + 中文 path）
+- `docs/01-05, 07-10` — 专项设计（06 编号空缺）
+- `spike/*` — **只读探针，9 个独立程序**（不可 import）
