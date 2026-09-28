@@ -105,8 +105,15 @@ import "peagent/win"            // 错误：会找不到
 `.gitignore` 规则：
 
 - `*.exe` 排除所有 exe
-- `!dist/smith.exe` / `!dist/smith64.exe` / `!dist/spike{386,64}/*.exe` 重新放行（用户拷 U 盘用）
+- `!dist/smith.exe` / `!dist/smith64.exe` 重新放行（用户拷 U 盘用）
+- **spike 产物是逐个枚举放行，不是整目录**：`dist/spike{386,64}/*.exe` 先忽略、
+  再对 9 个已登记的 spike 逐个 `!` 放行。原因（commit `4581a9d` / docs/11 §S6-7）：
+  整目录放行会让 `build.cmd` 新增 spike 时静默把新二进制纳入跟踪，产生没人
+  review 的二进制 diff。**新增 spike 时必须同步在 `.gitignore` 里登记**，
+  否则产物会以 `??` 状态一直飘着（`git add .` 时会被静默吞进下一个 commit）。
 - `.tmp/` / `.workbuddy/` 完全排除（Mavis runtime + 工作缓存）
+- `dist/smith.key` / `dist/smith.ini` / `dist/*.log` 也排除 —— dist/ 是"拷 U 盘交付"
+  的目录，但运行时会在自己旁边写这些文件，`smith.key` 是真实 API key
 
 **新建可执行产物时**：要么改 `.gitignore` 放行，要么不 commit（看是不是用户要拷 U 盘的产物）。
 

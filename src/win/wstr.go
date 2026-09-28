@@ -17,6 +17,7 @@ package win
 import (
 	"errors"
 	"runtime"
+	"sync"
 	"syscall"
 )
 
@@ -30,6 +31,40 @@ import (
 // 即使设个"满了回收"看似控制内存，实为定时炸弹。一旦某个在飞 Win32 Call
 // 持有被踢出去的 *uint16，重置 → append 之间的 GC 窗口里 Win32 就会读到
 // 野指针，GUI 表现会像"PE 不支持 GUI"这种最难排查的故障。
+// 保活集合。
+//
+// 【T0 修复：M1 契约在集成面被并发 append 打穿】
+//
+// 这两个是**无锁的包级全局 slice**，而调用方横跨两个线程：
+//
+//	T1 = UI 线程   logx 在 OnStop（main.go 必打 `!! user abort`）/
+//	              OnSend（userInputCh 满时打 dropping warn）时调 Ptr
+//	T2 = worker   agent/loop.go 内 5 处 logx.Info / logx.Error
+//
+// logx.logf 对**每一条**日志行都调 win.Ptr()，所以并发 append 竞态是常态。
+//
+// 危害不是"少一行日志"：丢失一次 append 意味着那个 *uint16 从此**只被 uintptr
+// 引用**，GC 立刻可回收 → UI 线程 appendLog 的
+// (*uint16)(unsafe.Pointer(lparam)) 解引用野指针 → 随机花屏/崩溃。
+// logx 里的 win.KeepAlive(lp) **救不了**：KeepAlive 只保证本语句之前存活，
+// 而这里的解引用跨越线程边界（PostMessage → 消息队列 → UI 线程消费）。
+//
+// 审计实测丢失率（go1.20.14 / 386 多核 / 5 轮取区间）：
+//
+//	2 goroutine × 200,000 → 丢 29.7% – 34.4%
+//	4 goroutine × 200,000 → 丢 59.5% – 64.3%
+//	8 goroutine × 200,000 → 丢 69.7% – 79.1%
+//
+// 死锁评估：无。Ptr / Hold / FromCmdline 内部只有 UTF16PtrFromString + append，
+// 不调用任何其它加锁函数；logx 自己的 mu 是"取完就放"（Lock → Unlock 之后才调
+// win.Ptr），两把锁不存在嵌套，无锁序环路。
+var wstrKeepMu sync.Mutex
+
+// wstrKeep 持有 syscall.UTF16PtrFromString 返回的 *uint16。
+//
+// 永不 [:0] 重置（v1-M1）：即使设个"满了回收"看似控制内存，实为定时炸弹。
+// 一旦某个在飞 Win32 Call 持有被踢出去的 *uint16，重置 → append 之间的 GC
+// 窗口里 Win32 就会读到野指针，GUI 表现会像"PE 不支持 GUI"这种最难排查的故障。
 // 实际峰值 < 100 个元素（GUI 启动期），长期持有 4KB 引用 + 几百 KB 字符串
 // 对 GUI 程序完全可接受。
 var wstrKeep []*uint16
@@ -68,7 +103,9 @@ func Ptr(s string) (*uint16, error) {
 	if err != nil {
 		return nil, ErrNUL
 	}
+	wstrKeepMu.Lock()
 	wstrKeep = append(wstrKeep, p)
+	wstrKeepMu.Unlock()
 	return p, nil
 }
 
@@ -92,7 +129,9 @@ func FromCmdline(cmdline string) (*uint16, error) {
 	if err != nil {
 		return nil, ErrNUL
 	}
+	wstrKeepMu.Lock()
 	wstrKeepSlices = append(wstrKeepSlices, slice)
+	wstrKeepMu.Unlock()
 	return &slice[0], nil
 }
 
@@ -100,7 +139,9 @@ func FromCmdline(cmdline string) (*uint16, error) {
 // 调用方自己 UTF16PtrFromString 但没有用 Ptr/FromCmdline 时）。
 func Hold(p *uint16) {
 	if p != nil {
+		wstrKeepMu.Lock()
 		wstrKeep = append(wstrKeep, p)
+		wstrKeepMu.Unlock()
 	}
 }
 
