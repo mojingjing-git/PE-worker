@@ -14,8 +14,13 @@
 package tools
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -176,4 +181,245 @@ func TestExec_NilCtxDoesNotPanic(t *testing.T) {
 		}
 	}()
 	// （非零退出码是预期的：TestExec_PartialOutputOnError 覆盖那个语义）
+}
+
+// ---------------------------------------------------------------------------
+// P3-30 复审 C1：capWriter 的并发安全
+//
+// 【为什么这些测试存在】—— os/exec 时代不需要锁：那时是
+// `cmd.Stdout = cw; cmd.Stderr = cw`，os/exec 走 interfaceEqual 分支
+// **共用一根管道、只起一个 copy goroutine**，写入天然串行。
+// P3-30 把 exec / run_script 都迁到 win.StartJobCmd 后变成**两根管道、
+// 两个 goroutine** 各自 io.Copy 写同一个 cw —— 串行保证没了，cw 当时仍是裸的。
+//
+// 【为什么不能靠 -race】—— 按 AGENTS.md，race detector 在 386 + 无 CGO 下
+// 不可用（PE 镜像里没有 C 编译器），build.cmd 也不带 -race。
+// strings.Builder 的 copyCheck 只查值拷贝、**不查并发写**，所以无锁版本
+// 既不 panic 也过不了任何现有门禁 —— 只能靠下面两个测试的**设计**让它可见。
+// ---------------------------------------------------------------------------
+
+// 并发参数。挑的依据：断言必须**逐字节精确**，这样任何一次丢更新 /
+// 丢失 append 都会让长度对不上；同时 Write 次数要够多（几十万次），
+// 才让非原子的读-改-写窗口有实际命中的概率。
+const (
+	ccGoroutines = 8
+	ccIters      = 60000
+	ccChunkLen   = 16
+	ccTotal      = ccGoroutines * ccIters * ccChunkLen // 7,680,000 字节
+)
+
+// spawnConcurrentWrites 起 ccGoroutines 个 goroutine，每个写 ccIters 次
+// ccChunkLen 字节；第 g 个只写字节 'A'+g，便于事后逐字节核对完整性。
+func spawnConcurrentWrites(cw *capWriter, onErr func(int, error)) {
+	var wg sync.WaitGroup
+	wg.Add(ccGoroutines)
+	for g := 0; g < ccGoroutines; g++ {
+		go func(g int) {
+			defer wg.Done()
+			// 注意：不能 t.Fatal —— t.Fatal 只能从测试主 goroutine 调，
+			// 在别的 goroutine 里调用是 panic 而不是失败。
+			chunk := bytes.Repeat([]byte{byte('A' + g)}, ccChunkLen)
+			for i := 0; i < ccIters; i++ {
+				if _, err := cw.Write(chunk); err != nil {
+					onErr(i, err)
+					return
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+}
+
+// TestCapWriter_ConcurrentWritesPreserveAllBytes 验"未超限时一个字节都不能丢"。
+//
+// 上限故意设得比总量大 —— 任何截断都是错的，因此期望值是**精确**的：
+// 长度 = ccTotal，且每个字节的**出现次数**都必须是 ccIters*ccChunkLen。
+//
+// 无锁时为什么必然对不上：两个 goroutine 会对同一个 strings.Builder 同时
+// `b.buf = append(b.buf, p...)` —— 它们读到同一份旧 slice header，各自把
+// 内容追加到同一块后继数组的同一偏移，然后各回写 header。
+// 后写的那个把先写的整个覆盖掉 → 那个 chunk 的内容消失，而长度只算了它自己。
+// 7.6 万次 append 里命中几次是必然的（实测见报告）。
+func TestCapWriter_ConcurrentWritesPreserveAllBytes(t *testing.T) {
+	cw := newCapWriter(ccTotal + 1024) // 留 1024 余量：任何截断都是 bug
+
+	var writeErrs []error
+	var mu sync.Mutex
+	spawnConcurrentWrites(cw, func(i int, err error) {
+		mu.Lock()
+		writeErrs = append(writeErrs, err)
+		mu.Unlock()
+	})
+	if len(writeErrs) > 0 {
+		t.Fatalf("并发 Write 返回错误（capWriter 必须对被丢弃的字节假成功）: %v", writeErrs[0])
+	}
+
+	got := cw.String()
+	if len(got) != ccTotal {
+		t.Errorf("未超限时正文 %d 字节，期望恰好 %d —— 丢了 %d 字节（C1：capWriter 并发写不安全）",
+			len(got), ccTotal, ccTotal-len(got))
+	}
+	if cw.Dropped() != 0 {
+		t.Errorf("Dropped() = %d, want 0（总量未超上限）", cw.Dropped())
+	}
+	// 逐字节核对：内容不只是长度要对，**内容本身**也不能被覆盖成乱码
+	for g := 0; g < ccGoroutines; g++ {
+		want := ccIters * ccChunkLen
+		if n := strings.Count(got, string([]byte{byte('A' + g)})); n != want {
+			t.Errorf("字节 %q 出现 %d 次，期望 %d 次（C1：并发写丢了 %d 字节内容）",
+				string([]byte{byte('A' + g)}), n, want, want-n)
+		}
+	}
+}
+
+// TestCapWriter_ConcurrentWritesKeepTruncationAccountingExact 验
+// limited_writer.go 第 1 条设计目标「如实告诉模型省略了多少」在并发下仍然成立。
+//
+// 上限卡在**总量正中**（ccTotal/2），于是 room 每次都要重新算：
+// `room := c.max - c.written`。`c.written` 的读-改-写一旦丢更新，
+// room 就会算大（写超上限）或算小（提前丢内容）——
+// 而这两个都是**精确可断言**的：
+//
+//	正文长度必须恰好 = max        （room 算大就会超）
+//	Dropped() 必须恰好 = ccTotal-max（room 算小就少丢，多丢或少丢都错）
+//
+// 注意这条比"长度不超上限"强得多：上面 TestExec_OutputIsCapped 那种
+// "≤ max+4096" 的宽松断言对丢更新完全不敏感，这里是逐字节相等。
+func TestCapWriter_ConcurrentWritesKeepTruncationAccountingExact(t *testing.T) {
+	const maxBytes = ccTotal / 2
+	cw := newCapWriter(maxBytes)
+
+	var writeErrs []error
+	var mu sync.Mutex
+	spawnConcurrentWrites(cw, func(i int, err error) {
+		mu.Lock()
+		writeErrs = append(writeErrs, err)
+		mu.Unlock()
+	})
+	if len(writeErrs) > 0 {
+		t.Fatalf("并发 Write 返回错误（capWriter 必须对被丢弃的字节假成功）: %v", writeErrs[0])
+	}
+
+	got := cw.String()
+	body := strings.SplitN(got, "\n...[truncated", 2)[0]
+	if len(body) != maxBytes {
+		t.Errorf("截断后正文 %d 字节，期望恰好 %d（C1：room 算错，多写或少写了 %d 字节）",
+			len(body), maxBytes, len(body)-maxBytes)
+	}
+	wantDropped := int64(ccTotal - maxBytes)
+	if cw.Dropped() != wantDropped {
+		t.Errorf("Dropped() = %d, want %d（C1：c.dropped 丢更新，"+
+			"截断说明里的字节数会是错的 —— 模型会误以为看全了）",
+			cw.Dropped(), wantDropped)
+	}
+	if !strings.Contains(got, itoa(int(wantDropped))) {
+		t.Errorf("截断说明里应含省略字节数 %d，实际:\n%q", wantDropped, tail(got, 120))
+	}
+}
+
+// TestCapWriter_ConcurrentWritesAndStringDontDeadlock 验加锁没有引入死锁 /
+// 自锁。场景：一边持续并发 Write，一边反复 String()/Dropped()。
+//
+// capWriter 的 mu 是**不可重入**的，写法上必须保证三个方法互不调用
+// （Write 不回调 String/Dropped；String 只调纯函数 trimPartialRune）。
+// 这个测试用超时把"将来有人往 Write 里塞一个 cw.String()"钉死。
+func TestCapWriter_ConcurrentWritesAndStringDontDeadlock(t *testing.T) {
+	cw := newCapWriter(ccTotal / 4)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			chunk := bytes.Repeat([]byte("Z"), ccChunkLen)
+			for i := 0; i < ccIters; i++ {
+				if _, err := cw.Write(chunk); err != nil {
+					return
+				}
+			}
+		}()
+		// 读者与写者并发
+		for i := 0; i < 2000; i++ {
+			_ = cw.String()
+			_ = cw.Dropped()
+		}
+		wg.Wait()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("capWriter 并发 Write + String/Dropped 卡死 60s —— mu 不可重入，写法上有自锁")
+	}
+}
+
+// TestMergeDrainErr 验 P3-30 复审 I2 的错误合并规则：
+// 管道排空失败不能被静默吞掉（那会让句柄 bug 伪装成"命令没输出"），
+// 但命令本身已失败时要保留原 err 为主因。
+func TestMergeDrainErr(t *testing.T) {
+	boom := errors.New("boom")
+	pipe := fmt.Errorf("取 stdout 管道读端: %w", errPipeNotTaken)
+
+	t.Run("无管道错", func(t *testing.T) {
+		if got := mergeDrainErr(boom, nil); got != boom {
+			t.Errorf("mergeDrainErr(boom, nil) = %v, want boom", got)
+		}
+	})
+	t.Run("命令成功_管道错接管", func(t *testing.T) {
+		got := mergeDrainErr(nil, pipe)
+		if got == nil {
+			t.Fatal("管道错必须被报出来，否则句柄 bug 伪装成'命令没输出'")
+		}
+		if !errors.Is(got, errPipeNotTaken) {
+			t.Errorf("err 链里应能追到 errPipeNotTaken，实际 %v", got)
+		}
+	})
+	t.Run("命令已失败_保留主因", func(t *testing.T) {
+		got := mergeDrainErr(boom, pipe)
+		if got == nil {
+			t.Fatal("不该返回 nil")
+		}
+		if !strings.Contains(got.Error(), "boom") {
+			t.Errorf("主因 runErr 应保留在消息里，实际 %v", got)
+		}
+		if !errors.Is(got, errPipeNotTaken) {
+			t.Errorf("管道错仍须用 %%w 进错误链（L5），实际 %v", got)
+		}
+	})
+}
+
+func TestFirstErr(t *testing.T) {
+	e1 := errors.New("e1")
+	e2 := errors.New("e2")
+	if got := firstErr(nil, nil); got != nil {
+		t.Errorf("firstErr(nil,nil) = %v, want nil", got)
+	}
+	if got := firstErr(nil, e1); got != e1 {
+		t.Errorf("firstErr(nil,e1) = %v, want e1", got)
+	}
+	if got := firstErr(e1, e2); got != e1 {
+		t.Errorf("firstErr(e1,e2) = %v, want e1", got)
+	}
+}
+
+// TestExec_StderrCapturedWithoutError 钉住 I2 改造的**反面风险**：
+// 收 io.Copy 的错误之后，正常的"子进程往 stderr 写东西"绝不能被误报成失败。
+//
+// 管道正常读到底会得到 io.EOF（Go 在 os.(*File).wrapErr 里把
+// ERROR_BROKEN_PIPE 映射成 io.EOF），io.Copy 因此返 nil。
+// 如果哪天这个映射变了或 Close 报错，这里立刻红 —— 宁可要一个明确的红，
+// 也不要"exec 偶发失败"这种 PE 现场查不出来的症状。
+func TestExec_StderrCapturedWithoutError(t *testing.T) {
+	res, err := RunByName(&Context{}, "exec", "echo OUT_MARKER & echo ERR_MARKER 1>&2")
+	if err != nil {
+		t.Fatalf("往 stderr 写不该让 exec 失败（管道排空错误的合并逻辑误伤了正常路径）: %v", err)
+	}
+	if !strings.Contains(res.Text, "OUT_MARKER") {
+		t.Errorf("输出缺 stdout 行: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "ERR_MARKER") {
+		t.Errorf("输出缺 stderr 行（P3-20 回归：stderr 读端被误关）: %q", res.Text)
+	}
 }

@@ -79,13 +79,3 @@ func classifyAbort(cctx context.Context) (timedOut bool, canceled bool) {
 	}
 	return false, true // context.Canceled
 }
-
-// timeoutContext 是包级兼容包装：给没有 Context 的旧调用点用。
-// 新代码请用 (&Context{}).timeoutContext() 以便透传取消信号。
-func timeoutContext(sec int) (context.Context, context.CancelFunc) {
-	return (&Context{}).timeoutContext(sec)
-}
-
-// context_DeadlineExceeded 是 context.DeadlineExceeded 的本地别名,
-// 让 run_script 看着对称（和 exec 一样比较 cctx.Err()）。
-var context_DeadlineExceeded = context.DeadlineExceeded

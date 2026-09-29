@@ -23,11 +23,16 @@
 //  2. 截断点回退到 rune 边界，不劈开 UTF-8 多字节字符（否则乱码）。
 //  3. Write 对被丢弃的字节返回 len(p)（假成功），否则 io.Copy 会当成
 //     写失败而提前中止管道，导致子进程收到 SIGPIPE 类的怪行为。
+//  4. **Write 是并发安全的**（P3-30 复审 C1）—— 迁到 win.StartJobCmd 后
+//     stdout / stderr 是两根管道、两个 goroutine 各自 io.Copy 写**同一个**
+//     capWriter，不再有 os/exec 时代"共用一根管道只起一个 copy goroutine"
+//     带来的隐式串行。见 mu 字段注释。
 package tools
 
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -39,7 +44,38 @@ import (
 const maxToolOutputBytes = 512 << 10
 
 // capWriter 是一个带上限的 io.Writer。超过 max 后丢弃新数据并计数。
+//
+// ⚠️ **并发安全（P3-30 复审 C1）**：Write / String / Dropped 全部在 mu 内。
+//
+// 【为什么必须有锁】—— os/exec 时代不需要：
+// 那时是 `cmd.Stdout = cw; cmd.Stderr = cw`，os/exec 走
+// `interfaceEqual(Stderr, Stdout)` 分支，**共用同一根管道、只起一个 copy
+// goroutine**，写入天然串行。迁到 win.StartJobCmd（P3-30）后是**两根管道、
+// 两个 goroutine** 各自 `io.Copy(cw, …)` —— 串行保证没了，cw 仍是裸的。
+//
+// 无锁时的具体失败时序（exec.go 从 T2 起就有同款）：
+//
+//	goroutine A 进 Write 读到 room（基于旧 c.written）
+//	A 的 c.w.Write 触发 Builder.grow 重分配并回写 b.buf 的 ptr/len/cap
+//	goroutine B 此刻 append(b.buf, p2) 拿到**已被弃用的旧数组**写入
+//	A 回写 b.buf  → B 的输出整体消失
+//
+// 且 `c.written` / `c.dropped` 的读-改-写非原子 → 丢更新 →
+// `[...truncated N bytes]` 里的 N 是错的，直接违反本文件第 1 条设计目标
+// 「不能让模型以为看全了」。更坏时 slice header 的 ptr 与 len 来自不同次
+// 写入，append 可能越界写。
+//
+// 【为什么所有门禁都抓不到】strings.Builder 的 copyCheck 只查值拷贝、
+// 不查并发写，**不会 panic**；本项目按 AGENTS.md 不带 -race
+// （386 + 无 CGO 不可用）。所以只能靠锁 + 专门设计的并发测试
+// （output_limit_test.go 的 TestCapWriter_Concurrent*）。
+//
+// 【死锁排查】mu 是**不可重入**的：Write / String / Dropped 三个方法内部
+// 互不调用（Write 不回调 String/Dropped；String 只调纯函数 trimPartialRune），
+// 因此不存在"持锁时又回调自己"的路径。capWriter 也不得按值传递 ——
+// 它含 sync.Mutex，按值拷贝会被 go vet 的 copylocks 拦下。
 type capWriter struct {
+	mu      sync.Mutex
 	w       *strings.Builder
 	max     int
 	written int
@@ -56,6 +92,9 @@ func newCapWriter(max int) *capWriter {
 
 // Write 实现 io.Writer。
 func (c *capWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	room := c.max - c.written
 	if room <= 0 {
 		c.dropped += int64(len(p))
@@ -82,6 +121,9 @@ func (c *capWriter) Write(p []byte) (int, error) {
 // String 返回截断后的文本。**被截断时会在尾部追加一行如实说明**，
 // 这样模型知道"还有 N 字节没看到"，而不是误以为自己看到了全部。
 func (c *capWriter) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.dropped == 0 {
 		return c.w.String()
 	}
@@ -90,7 +132,12 @@ func (c *capWriter) String() string {
 }
 
 // Dropped 返被丢弃的字节数（测试与诊断用）。
-func (c *capWriter) Dropped() int64 { return c.dropped }
+func (c *capWriter) Dropped() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.dropped
+}
 
 // trimPartialRune 去掉字符串末尾可能不完整的 UTF-8 编码（被字节上限切断的）。
 // 没有这一步，截断处会出现半个汉字（豆腐块）。

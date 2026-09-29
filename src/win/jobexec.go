@@ -616,7 +616,9 @@ func (j *JobCmd) Close() error {
 // 立即返回 os.ErrInvalid，error 被丢弃）。
 //
 // 推论：**调用方不要把 nil 当成"正常但没输出"**，nil 意味着句柄管理有 bug，
-// 应当报错而不是静默跳过（exec.go:106 目前的 `_, _ =` 就是反面例子）。
+// 应当报错而不是静默跳过。tools 侧已按此修（P3-30 复审 I2）：exec.go 与
+// run_script.go 的 drain 闭包把 nil 转成 tools.errPipeNotTaken，并用
+// %w 挂进最终错误，句柄管理出 bug 不会再伪装成"命令没输出"。
 func (j *JobCmd) TakeStdoutPipe() *os.File {
 	h := j.stdoutRd
 	j.stdoutRd = 0

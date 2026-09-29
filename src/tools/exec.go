@@ -5,13 +5,15 @@
 //   - 真正拦危险操作的是 confirm 交互
 //   - 不在白名单里 → warn 但不阻断（白名单是软护栏, 不当沙箱用）
 //
-// 用 os/exec.Cmd 跑命令 + 管道合并 stdout/stderr。timeout 60s。
+// 用 win.StartJobCmd 跑命令（Job Object 杀整棵树）+ 并发排空 stdout/stderr 管道。
+// timeout 60s。结果分类阶梯在 runneresult.go，与 run_script 共用。
 package tools
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -91,20 +93,49 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	// 【S3 + T2】排空管道 + 限流。
 	//
 	// ⚠️ **必须并发读两个管道**。匿名管道缓冲约 64KB，一旦写满，子进程
-	// WriteFile 阻塞 → 永不退出 → Wait 永远等不到 → 整个 exec 挂死，
-	// 连 60s 超时都救不了。而本项目已知有个 14.7MB 输出的故障场景
+	// WriteFile 阻塞 → 永不退出 → jc.Wait() 永远等不到 → 整个 exec 挂死。
+	// 而本项目已知有个 14.7MB 输出的故障场景
 	//（`for /L %i in (1,1,3000000) do @echo ...`），远超任何管道缓冲。
+	//
+	// ⚠️ **但超时救不了这一段**（不是回归，只是别把话说满）：os/exec 时代
+	// cmd.Run() 同样在等 copy goroutine，这个洞一直存在。超时只保证
+	// jc.Wait() 会返回；下面 drainWG.Wait() 仍可能无限阻塞 —— 若 cmd.exe 的
+	// 孙进程也以继承方式拿到管道写端（doCreateProcess 用
+	// bInheritHandles=TRUE），读端就永远等不到 EOF。而 Win7 无嵌套 job 时
+	// jc.Kill() 可能降级到只杀直接子进程，孙进程活下来 → 卡死。
 	cw := newCapWriter(maxToolOutputBytes)
+	drainErrs := make(chan error, 2)
 	var drainWG sync.WaitGroup
 	drainWG.Add(2)
-	go func() {
+	// drain 把一根管道排空到 EOF。
+	//
+	// ⚠️ 三个不能省的点（与 run_script.go 同构）：
+	// ① Take*Pipe 返 nil 必须当**错误**（win/jobexec.go：nil 意味着句柄管理
+	//    有 bug，不能当成"这次没输出"）—— P3-20 之前就是恒 nil，而本文件原来
+	//    的 `_, _ =` 把它静默吞了，exec 的 stderr 全丢而测试还绿。
+	// ② Take*Pipe 已把所有权**移交**调用方（JobCmd.Close 会跳过已被 Take
+	//    置 0 的字段），所以**我们负责 Close**，别等 GC finalizer 回收。
+	// ③ 两个 goroutine 共写同一个 cw —— capWriter 内部有锁（P3-30 C1），
+	//    且 io.Copy 的返回错误必须收进 drainErrs（L5）。
+	drain := func(f *os.File, which string) {
 		defer drainWG.Done()
-		_, _ = io.Copy(cw, jc.TakeStdoutPipe())
-	}()
-	go func() {
-		defer drainWG.Done()
-		_, _ = io.Copy(cw, jc.TakeStderrPipe())
-	}()
+		if f == nil {
+			drainErrs <- fmt.Errorf("取 %s 管道读端: %w", which, errPipeNotTaken)
+			return
+		}
+		_, copyErr := io.Copy(cw, f)
+		closeErr := f.Close() // 所有权已移交，显式关，别等 GC finalizer
+		switch {
+		case copyErr != nil:
+			drainErrs <- fmt.Errorf("排空 %s 管道: %w", which, copyErr)
+		case closeErr != nil:
+			drainErrs <- fmt.Errorf("关闭 %s 管道: %w", which, closeErr)
+		default:
+			drainErrs <- nil
+		}
+	}
+	go drain(jc.TakeStdoutPipe(), "stdout")
+	go drain(jc.TakeStderrPipe(), "stderr")
 
 	// ctx 取消（Esc/Stop 或超时）→ Kill 整棵树
 	killed := make(chan error, 1)
@@ -121,16 +152,13 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	exitCode, waitErr := jc.Wait()
 	close(procDone) // 进程已退出，kill watcher 随之收尾
 	killErr := <-killed
-	// 等两个 drain goroutine 收尾，否则会丢掉尾部输出
+	// 等两个 drain goroutine 收尾，否则会丢掉尾部输出。
+	// ⚠️ 这一步**没有超时**：见上面"超时救不了这一段"的说明。
 	drainWG.Wait()
+	// 容量 2 且 Wait 已过，两个结果必已就绪，不需要 select/drain。
+	drainErr := firstErr(<-drainErrs, <-drainErrs)
 
-	runErr := waitErr
-	if runErr == nil && exitCode != 0 {
-		runErr = fmt.Errorf("exit status %d", exitCode)
-	}
-	if killErr != nil && runErr == nil {
-		runErr = killErr
-	}
+	runErr := mergeDrainErr(synthRunErr(exitCode, waitErr, killErr), drainErr)
 
 	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
 	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
@@ -141,34 +169,10 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	}
 	// 解码失败时保留原始字节串（decErr 会在下面的错误分支里透传，L5）
 
+	// 分类阶梯是共用的（runneresult.go）：run_script 也调它，
+	// 两边的中止判定与消息形状因此不会再分叉。
 	timedOut, canceled := classifyAbort(cctx)
-	if canceled && !timedOut {
-		// 用户按了 Esc/Stop —— 与"超时"是完全不同的反馈，别混为一谈
-		return Result{Text: outStr}, errors.New("exec: canceled by user (Esc/Stop)")
-	}
-	if timedOut {
-		if decErr != nil {
-			return Result{Text: outStr}, fmt.Errorf("exec: timeout after %ds (decode output: %w)", execTimeoutSec, decErr)
-		}
-		return Result{Text: fmt.Sprintf("[exec timeout %ds] partial: %s", execTimeoutSec, outStr)},
-			fmt.Errorf("exec: timeout after %ds", execTimeoutSec)
-	}
-	if runErr != nil {
-		// exit code != 0 也算 err, 但把 output 也带回去。
-		// 【S3-audit】这里返回的 Result.Text 是**有效输出** —— loop 侧现在
-		// 会把它作为 "partial output" 一起回灌给模型（原来被整个丢掉，
-		// 导致 `echo hello & exit /b 1` 这种场景模型只看到 "exit status 1"
-		// 然后反复重试同一条命令直到 MaxTurns）。
-		if decErr != nil {
-			return Result{Text: outStr}, fmt.Errorf("exec: %v (decode output: %w)", runErr, decErr)
-		}
-		return Result{Text: outStr},
-			fmt.Errorf("exec: %v", runErr)
-	}
-	if decErr != nil {
-		return Result{Text: outStr}, fmt.Errorf("exec: decode output: %w", decErr)
-	}
-	return Result{Text: outStr}, nil
+	return classifyRunOutcome("exec", outStr, decErr, runErr, timedOut, canceled, execTimeoutSec)
 }
 
 // containsToken 检查 list 里是否包含 token（不区分大小写）。
