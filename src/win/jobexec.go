@@ -79,7 +79,16 @@ const (
 
 // JobCmd 是一个已绑定到 Job Object 的子进程。
 //
-// 句柄共 **7 个**（3 + 4），关闭时机各不相同 —— 见 Close 与各字段注释。
+// 句柄共 **7 个**（3 + 4），关闭时机各不相同 —— 见 Close 与各字段注释：
+//
+//	hJob / hProc  → Close() 关闭
+//	hThread       → ResumeThread 成功后立即关闭
+//	soWr / seWr   → CreateProcess 成功后立即在父进程关闭（P3-20 修正，
+//	                之前这里误关了 seRd 造成死字段 + 写端泄漏）
+//	soRd / seRd   → TakeStdoutPipe / TakeStderrPipe 移交给调用方
+//
+// ⚠️ 写端**不占字段**（曾经有过 stdoutWr/stderrWr 两个字段，但从未被赋值 ——
+// 死字段正是"写端从来没被正确管理"的症状，已删）。
 type JobCmd struct {
 	hJob  uintptr
 	hProc uintptr
@@ -88,8 +97,6 @@ type JobCmd struct {
 
 	stdoutRd uintptr // 管道读端（父进程读）
 	stderrRd uintptr
-	stdoutWr uintptr // 管道写端（给子进程）；CreateProcess 成功后立即在父进程关闭
-	stderrWr uintptr
 
 	rootPID  uint32 // 用于 M2 降级杀树
 	rootName string // 映像名，用于 M2(a) 整轮中止
@@ -268,10 +275,17 @@ func StartJobCmd(spec StartJobSpec) (*JobCmd, error) {
 	created = true
 
 	// ---- 4. 父进程立刻关掉两个写端 ----
-	// 不关的话子进程 stdout 写满管道会阻塞、永不退出 → Wait 死锁。
+	// 不关的话子进程 stdout/stderr 写满管道会阻塞、永不退出 → Wait 死锁。
+	// ⚠️ 关的必须是 **Wr**：Wr 创建后交给子进程用，父进程立即放手；
+	//    Rd 留给父进程读（exec.go 的 TakeStdoutPipe / TakeStderrPipe）。
+	//    历史 bug（P3-20）：这里曾误写 seRd（stderr **读端**），后果是
+	//    ① stderr 读端被关 → jc.stderrRd 恒为 0 → exec 收不到任何 stderr
+	//    ② stderr 写端 seWr 从未关闭 → 每次 exec 泄一个可继承句柄
+	//    ③ 父进程握着写端 → 子进程 stderr 写满 64KB 管道后永久阻塞，
+	//      exec 那边表现为"任何 stderr > 64KB 的命令每次假超时 60s"
 	pCloseHandle.Call(uintptr(soWr))
-	pCloseHandle.Call(uintptr(seRd))
-	seRd = 0
+	pCloseHandle.Call(uintptr(seWr))
+	seWr = 0
 	soWr = 0
 
 	jc := &JobCmd{
@@ -595,6 +609,15 @@ func (j *JobCmd) Close() error {
 // （3 次里挂 1 次，取决于 GC 时机 —— 最难查的一类。）
 //
 // 所以移交后立刻把字段置 0，Close() 就不会再碰它。所有权归调用方。
+//
+// ⚠️ 返回 nil **只有一种情况**：句柄已经被取走过（重复 Take）或 JobCmd 已
+// Close。正常路径上 StartJobCmd 一定交出有效的读端句柄 —— P3-20 之前
+// TakeStderrPipe() 恒返 nil（stderr 读端在 StartJobCmd 里被当成写端关了），
+// 症状是 exec 的 stderr 输出全丢而测试还绿（调用方 `io.Copy(cw, nil)`
+// 立即返回 os.ErrInvalid，error 被丢弃）。
+//
+// 推论：**调用方不要把 nil 当成"正常但没输出"**，nil 意味着句柄管理有 bug，
+// 应当报错而不是静默跳过（exec.go:106 目前的 `_, _ =` 就是反面例子）。
 func (j *JobCmd) TakeStdoutPipe() *os.File {
 	h := j.stdoutRd
 	j.stdoutRd = 0
