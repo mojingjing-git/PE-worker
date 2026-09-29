@@ -5,14 +5,18 @@ import (
 	"testing"
 )
 
-// 14 个工具的硬性清单 (M1-L1: 注册表必须可穷举核对)。
-// 新增工具时必须同步修改这里 + tools_test_extra.go。
+// 17 个工具的硬性清单 (M1-L1: 注册表必须可穷举核对)。
+// 新增工具时必须同步修改这里 + meta.go 的 expectRegisteredTools +
+// src/test/e2e_test.go 的 TestE2E_All17ToolsRegistered（三处）。
 var allToolNames = []string{
 	"exec", "run_script", "help", "selftest", // P1-9a
 	"ls", "cat", "grep", "find", // P1-9b read
 	"write", "edit", "append", // P1-9b write
 	"http_get", "https_get", // P1-9b net
-	"ps", // P1-9b ps
+	"ps",       // P1-9b ps
+	"diskinfo", // P3-17 sys
+	"sysinfo",  // P3-17 sys
+	"kill",     // P3-17 sys（已注册，实现待 T2 接线）
 }
 
 func TestRegister_All(t *testing.T) {

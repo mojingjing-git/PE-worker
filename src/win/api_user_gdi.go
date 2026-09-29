@@ -53,6 +53,11 @@ var (
 	pSendMessageW     = user32.NewProc("SendMessageW")
 	pPostQuitMessage  = user32.NewProc("PostQuitMessage")
 
+	// MessageBoxW（T1-1）。**必须用 W 版不能用 A 版** —— A 版按 ANSI 代码页
+	// 解释字节，而 Go string 是 UTF-8；本机 ACP=936（GBK）会乱码。
+	// 产物导入表本来就含 user32.dll，不新增依赖。
+	pMessageBoxW = user32.NewProc("MessageBoxW")
+
 	// 资源
 	pLoadCursorW = user32.NewProc("LoadCursorW")
 	pLoadIconW   = user32.NewProc("LoadIconW")

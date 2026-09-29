@@ -1,7 +1,7 @@
 // tools/meta.go: help / selftest 两个 meta 工具。
 //
 // help 列出所有已注册工具名 + 描述 + 风险等级。
-// selftest 校验 14 个工具的元信息（注册数 + 描述非空 + Risk 在 enum 内）——
+// selftest 校验 17 个工具的元信息（注册数 + 描述非空 + Risk 在 enum 内）——
 // 描述里承诺了就真查, 少一个工具必须报 FAIL 而不是照样 OK（docs/11 S5-3）。
 package tools
 
@@ -25,9 +25,10 @@ func (helpTool) Run(_ *Context, _ string) (Result, error) {
 	return Result{Text: sb.String()}, nil
 }
 
-// expectRegisteredTools 是 docs/02 §3 的 14 工具清单长度。
-// 改 allToolNames(tools_test.go) 时必须同步改这里。
-const expectRegisteredTools = 14
+// expectRegisteredTools 是当前实际注册的工具数。
+// 改 allToolNames(tools_test.go) 时必须同步改这里（另外 src/test/e2e_test.go
+// 的 TestE2E_All17ToolsRegistered 也有一份清单，三处必须一起改）。
+const expectRegisteredTools = 17
 
 type selftestTool struct{}
 

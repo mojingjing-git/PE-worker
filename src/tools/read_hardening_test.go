@@ -4,13 +4,14 @@
 //   - S5-1 quoteArg 的 \" 转义不是 cmd 转义 → ls/cat/grep/find 可注入执行任意命令
 //   - S5-1 附带 带空格路径 100% 失败
 //   - S5-2 find 的 pattern 不是通配符 → "*.txt" 静默返 0 行
-//   - S5-3 selftest 描述承诺"注册数 == 14"但实现不查
+//   - S5-3 selftest 描述承诺"注册数 == N"但实现不查
 //   - S5-5 只读工具也弹 confirm, 文案还是 exec 的
 package tools
 
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -304,11 +305,11 @@ func TestSelftest_ReportsRegisteredCount(t *testing.T) {
 	if !strings.Contains(r.Text, "OK:") {
 		t.Errorf("工具数正确时 selftest 应报 OK, 实际: %q", r.Text)
 	}
-	if !strings.Contains(r.Text, "14") {
-		t.Errorf("selftest 输出应含期望工具数 14, 实际: %q", r.Text)
+	if !strings.Contains(r.Text, strconv.Itoa(expectRegisteredTools)) {
+		t.Errorf("selftest 输出应含期望工具数 %d, 实际: %q", expectRegisteredTools, r.Text)
 	}
-	if !strings.Contains(t0.Description(), "14") {
-		t.Errorf("selftest 描述应承诺注册数 == 14, 实际: %q", t0.Description())
+	if !strings.Contains(t0.Description(), strconv.Itoa(expectRegisteredTools)) {
+		t.Errorf("selftest 描述应承诺注册数 == %d, 实际: %q", expectRegisteredTools, t0.Description())
 	}
 }
 
@@ -327,8 +328,8 @@ func TestSelftest_FailsOnExtraTool(t *testing.T) {
 	if !strings.HasPrefix(r.Text, "FAIL:") {
 		t.Errorf("多注册一个工具应报 FAIL 开头, 实际: %q", r.Text)
 	}
-	if !strings.Contains(r.Text, "15") {
-		t.Errorf("FAIL 输出应含实际注册数 15, 实际: %q", r.Text)
+	if !strings.Contains(r.Text, strconv.Itoa(expectRegisteredTools+1)) {
+		t.Errorf("FAIL 输出应含实际注册数 %d, 实际: %q", expectRegisteredTools+1, r.Text)
 	}
 }
 
@@ -354,8 +355,8 @@ func TestSelftest_FailsOnMissingTool(t *testing.T) {
 	if !strings.HasPrefix(r.Text, "FAIL:") {
 		t.Errorf("少注册一个工具应报 FAIL 开头, 实际: %q", r.Text)
 	}
-	if !strings.Contains(r.Text, "13") {
-		t.Errorf("FAIL 输出应含实际注册数 13, 实际: %q", r.Text)
+	if !strings.Contains(r.Text, strconv.Itoa(expectRegisteredTools-1)) {
+		t.Errorf("FAIL 输出应含实际注册数 %d, 实际: %q", expectRegisteredTools-1, r.Text)
 	}
 }
 

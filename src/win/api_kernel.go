@@ -22,10 +22,16 @@ var (
 	// 注意：pGetTickCount64 故意不声明 —— MEMORY §10 / docs/02 §8 明确禁用
 	// （Win7 PE 上 GetTickCount64 缺失，会运行时炸）。要 64-bit tick 用 GetTickCount
 	// 配合 uint32 wraparound 处理。
-	pGetNativeSystemInfo      = kernel32.NewProc("GetNativeSystemInfo")
-	pGetSystemInfo            = kernel32.NewProc("GetSystemInfo")
-	pGetLogicalDrives         = kernel32.NewProc("GetLogicalDrives")
-	pGetDriveTypeW            = kernel32.NewProc("GetDriveTypeW")
+	pGetNativeSystemInfo = kernel32.NewProc("GetNativeSystemInfo")
+	pGetSystemInfo       = kernel32.NewProc("GetSystemInfo")
+	pGetLogicalDrives    = kernel32.NewProc("GetLogicalDrives")
+	pGetDriveTypeW       = kernel32.NewProc("GetDriveTypeW")
+	// 盘容量 / 卷标（tools/sysinfo.go 的 diskinfo 用）。两个都是 kernel32
+	// **核心导出**（kernel32.dll 与 advapi32.dll 分离之后仍留在 kernel32 的一批），
+	// WinPE 3.x 必含 —— 不是 shell32/ws2_32 那类可选 DLL 的转发。
+	// 参照 spike/hello 只验过 GetLogicalDrives+GetDriveTypeW，这两个是首次接线。
+	pGetDiskFreeSpaceExW      = kernel32.NewProc("GetDiskFreeSpaceExW")
+	pGetVolumeInformationW    = kernel32.NewProc("GetVolumeInformationW")
 	pGetComputerNameW         = kernel32.NewProc("GetComputerNameW")
 	pGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
 	pCloseHandle              = kernel32.NewProc("CloseHandle")

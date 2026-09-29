@@ -46,8 +46,14 @@ func TestNativeSystemInfo_Smoke(t *testing.T) {
 }
 
 func TestTickCount_Smoke(t *testing.T) {
-	t1 := TickCount()
-	t2 := TickCount()
+	t1, err := TickCount()
+	if err != nil {
+		t.Fatalf("TickCount: %v", err)
+	}
+	t2, err := TickCount()
+	if err != nil {
+		t.Fatalf("TickCount: %v", err)
+	}
 	if t2 < t1 {
 		t.Fatalf("TickCount went backwards: %d -> %d", t1, t2)
 	}
@@ -96,4 +102,37 @@ func TestUserName_Smoke(t *testing.T) {
 		t.Fatal("UserName empty")
 	}
 	t.Logf("UserName=%q", u)
+}
+
+// 下面两个是 diskinfo 工具新增的底层 API（T3 接线）。
+
+func TestDiskFreeSpace_Smoke(t *testing.T) {
+	d, err := DiskFreeSpace("C:\\")
+	if err != nil {
+		t.Fatalf("DiskFreeSpace(C:\\): %v", err)
+	}
+	if d.Total == 0 {
+		t.Fatal("DiskFreeSpace(C:\\).Total = 0（GetDiskFreeSpaceExW 没读到？）")
+	}
+	if d.FreeAvail > d.Total {
+		t.Fatalf("FreeAvail %d > Total %d", d.FreeAvail, d.Total)
+	}
+	t.Logf("Total=%d GB, FreeAvail=%d GB, FreeTotal=%d GB",
+		d.Total/1024/1024/1024, d.FreeAvail/1024/1024/1024, d.FreeTotal/1024/1024/1024)
+}
+
+func TestDiskFreeSpace_EmptyPath(t *testing.T) {
+	// Ptr("") 返 ErrEmpty —— 必须透传成 err，不能 panic、不能返零值 DiskSpace。
+	if _, err := DiskFreeSpace(""); err == nil {
+		t.Fatal("DiskFreeSpace(\"\") 应返 err")
+	}
+}
+
+func TestVolumeLabel_Smoke(t *testing.T) {
+	label, err := VolumeLabel("C:\\")
+	if err != nil {
+		t.Fatalf("VolumeLabel(C:\\): %v", err)
+	}
+	// label 可以是 ""（未格式化分区 / RAW 卷）—— 那不是错误。
+	t.Logf("VolumeLabel(C:\\)=%q", label)
 }

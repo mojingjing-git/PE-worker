@@ -34,7 +34,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"peagent/src/agent"
@@ -48,23 +52,87 @@ func main() {
 	os.Exit(boot())
 }
 
+// fatalExit 是**所有非零退出码路径的统一收口**（T1-2）。
+//
+// 存在的理由：产物是 -H windowsgui（**没有控制台**），PE 里双击运行时
+// 用户看到的就是"闪一下就没了"。每一个提前 return 1 都是一次静默消失。
+//
+// 顺序很重要：**日志永远先写**（万一弹窗失败，日志还在），
+// 然后弹 MessageBoxW（PE 里唯一可靠的可读通道）。
+//
+// ⚠️ **无头模式不弹窗**：`--no-gui` 跑的是 smoke_bin_test，它执行的正是
+// `smith.exe --no-gui`。MessageBox 是**模态阻塞**调用，没人点 OK 就会
+// 永挂 → smoke 测试 15s 超时失败。所以 noGUIMode 时只写日志 + stderr。
+//
+// ⚠️ **只收非零退出码**。用户主动取消 key 对话框是**正常退出**（return 0），
+// 那种路径弹「启动失败」是错误 UX —— 只打 log 静默退出即可。
+func fatalExit(code int, format string, args ...any) int {
+	_ = logx.Error("!! "+format, args...)
+
+	if noGUIMode {
+		fmt.Fprintf(os.Stderr, "FATAL(code=%d): %s\n", code, fmt.Sprintf(format, args...))
+		return code
+	}
+	win.FatalBox(0, buildFatalMessage(code, fmt.Sprintf(format, args...)))
+	return code
+}
+
+// buildFatalMessage 拼弹窗文本。抽成纯函数是为了**能在无头 CI 里测** ——
+// MessageBox 本身模态阻塞测不了，但它拼出来的字符串可以测。
+func buildFatalMessage(code int, detail string) string {
+	var b strings.Builder
+	b.WriteString("smith 启动失败（退出码 ")
+	b.WriteString(strconv.Itoa(code))
+	b.WriteString("）\n\n")
+	b.WriteString(detail)
+	if fatalLogPath != "" {
+		b.WriteString("\n\n详细日志：\n")
+		b.WriteString(fatalLogPath)
+	}
+	b.WriteString("\n\n（PE 现场无法复现，请把上面这个日志文件带回来）")
+	return b.String()
+}
+
 // boot 是 main 的实际实现；这样可以用 os.Exit 不影响 defer 链。
+// noGUIMode 记录是否无头模式（--no-gui）。fatalExit 与 runWorker 的 recover 据此决定
+// **要不要弹窗**（MessageBox 是模态阻塞调用，无人点 OK 会永挂 → smoke 测试必失败）。
+var noGUIMode bool
+
+// workerPanicked 被 runWorker 的 recover 置 1，表示 agent worker 崩了。
+// **必须用原子变量而不是 channel**：GUI 模式下 boot 阻塞在 win.Run() 的消息循环里，
+// 根本不在 select 中，任何 channel 都不会有人读。
+var workerPanicked int32
+
+// fatalLogPath 供 fatalExit 拼消息时附上日志位置（PE 里用户照着它去 U 盘找）。
+var fatalLogPath string
+
 func boot() int {
 	// [1] 命令行
+	//
+	// ⚠️ T1-4：`--console` 已删除。理由（docs/12 §七 Q1）：
+	// 产物用 -H windowsgui 链接，**没有控制台**，os.Stderr 全部丢弃；而
+	// AttachConsole(ATTACH_PARENT_PROCESS) 只在父进程有控制台时才成功 ——
+	// U 盘双击场景它必然失败，cmd 启动场景 MessageBoxW 也一样够用。
+	// 留一个"承诺弹控制台但什么也不做"的假开关比没有更坏：用户以为有保护，
+	// 实际没有。PE 里唯一可靠的可读输出通道现在是 MessageBoxW（见 fatalExit）。
 	var (
-		consoleFlag = flag.Bool("console", false, "create console window for stderr output")
-		keyFlag     = flag.String("key", "", "API key (overrides smith.ini; not recommended, visible in tasklist)")
-		noGUI       = flag.Bool("no-gui", false, "headless smoke test: run one user input then exit")
+		keyFlag = flag.String("key", "", "API key (overrides smith.ini; not recommended, visible in tasklist)")
+		noGUI   = flag.Bool("no-gui", false, "headless smoke test: run one user input then exit")
 	)
 	flag.Parse()
+	noGUIMode = *noGUI
 
 	// [2] 早期文件日志（GUI 起来前就有 trace）。
 	logPath, err := setupEarlyLog()
 	if err != nil {
-		// 连日志都开不了：只能往 stderr 喊一嗓子
+		// 连日志都开不了：这是最早的一次失败，stderr 大概率没人看，
+		// 弹窗是用户唯一能看到的东西
 		fmt.Fprintf(os.Stderr, "FATAL: cannot open early log: %v\n", err)
+		win.FatalBox(0, fmt.Sprintf("无法打开日志文件：%v\n\n"+
+			"请确认 U 盘可写，或把 smith.exe 放到可写目录再运行。", err))
 		return 1
 	}
+	fatalLogPath = logPath
 	_ = logx.Info("** ver boot start log=%s", logPath)
 
 	// [3] 加载 cfg
@@ -73,9 +141,8 @@ func boot() int {
 	iniPath := filepath.Join(exeDir, "smith.ini")
 	cfgInstance, err := loadCfg(iniPath)
 	if err != nil {
-		// 加载失败 = 致命（ini 写了错格式）
-		_ = logx.Error("!! cfg: %v", err)
-		return 1
+		// 加载失败 = 致命（ini 写了错格式）→ 弹窗（T1-2）
+		return fatalExit(1, "smith.ini 格式错误：%v\n\n请检查 %s", err, iniPath)
 	}
 	_ = logx.Info("** ver cfg loaded ini=%s", iniPath)
 
@@ -101,8 +168,7 @@ func boot() int {
 			cfgInstance.LLM.Model,
 		)
 		if err != nil {
-			_ = logx.Error("!! key dialog: %v", err)
-			return 1
+			return fatalExit(1, "API Key 输入框出错：%v", err)
 		}
 		_ = logx.Info("** ver PromptAPIKey returned ok=%v save=%v keyLen=%d", ok, save, len(key))
 		if !ok {
@@ -128,15 +194,7 @@ func boot() int {
 			_ = logx.Info("** ver key dialog OK'd, save=true")
 			keyPath := filepath.Join(exeDir, "smith.key")
 			if err := os.WriteFile(keyPath, []byte(key+"\n"), 0600); err != nil {
-				_ = logx.Error("!! write %s: %v", keyPath, err)
-				return 1
-			}
-			_ = logx.Info("** ver key saved %s", keyPath)
-			// smith.ini 合并模式：保留其它段，只覆盖 [llm]
-			iniPath := iniPath
-			if err := cfg.Save(iniPath, cfgInstance, false); err != nil {
-				_ = logx.Error("!! save %s: %v", iniPath, err)
-				return 1
+				return fatalExit(1, "写 %s 失败：%v\n\nU 盘可能是只读的；不勾选「保存到磁盘」则只用当次。", iniPath, err)
 			}
 			_ = logx.Info("** ver ini updated %s (provider=%s, model=%s, base=%s)",
 				iniPath, cfgInstance.LLM.Provider, cfgInstance.LLM.Model, cfgInstance.LLM.Base)
@@ -149,9 +207,8 @@ func boot() int {
 	// [4] 构造 LLM 客户端（缺字段 → nil，loop 时再报错）
 	llmClient, err := buildLLM(cfgInstance)
 	if err != nil {
-		// 致命：LLM 客户端是核心
-		_ = logx.Error("!! llm: %v", err)
-		return 1
+		// 致命：LLM 客户端是核心 → 弹窗（T1-2）
+		return fatalExit(1, "LLM 客户端初始化失败：%v\n\n请检查 smith.ini 的 [llm] 段（base / model / key）。", err)
 	}
 	if llmClient == nil {
 		_ = logx.Warn("!! llm: 缺配置（base/model/key），对话不可用；工具/单次 exec 仍可用")
@@ -212,9 +269,20 @@ func boot() int {
 
 	// [8] 进 GUI 消息循环
 	_ = logx.Info("** ver starting gui loop")
-	_ = *consoleFlag // --console 仅影响 link flag，不在 main 处理
 	winCode := win.Run()
 	_ = logx.Info("** ver gui returned code=%d", winCode)
+
+	// 【T1-3】worker 崩了 → 退出码 3。
+	//
+	// ⚠️ 这里**必须用原子变量而不是 channel**（复审指出的设计错误）：
+	// worker panic 发生在 GUI 模式下时，boot 此刻**阻塞在 win.Run() 的消息
+	// 循环里，根本不在 select 中** —— 任何 channel 都不会有人读。
+	// 让 win.Run() 提前返回的唯一途径是 PostQuitMessage（见 runWorker 的
+	// recover），退出码只能靠共享内存传回来。
+	if atomic.LoadInt32(&workerPanicked) != 0 {
+		cancel()
+		return 3
+	}
 
 	// [9] 通知 worker 退出（外层 ctx cancel → runWorker 主 select 命中 ctx.Done 退出）
 	cancel()
@@ -229,6 +297,34 @@ func boot() int {
 // 这样保证：按一次 Esc/Stop 只杀当前一轮，**worker 仍存活**，下条 user input
 // 进来还能继续。避免 C-2 描述的"Stop 后 worker 永久死亡"问题。
 func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan string, stopRun <-chan struct{}) {
+	// 【T1-3】worker 是裸 goroutine，之前**没有 recover** —— tools/agent 任一层
+	// panic 会直接崩掉整个进程（Windows 上 exit code 2），且崩之前没有任何日志
+	// 说明是哪一步炸的。退出码约定里的 "3 = worker 异常" 因此永远不可达。
+	//
+	// 三步缺一不可：
+	//  1. recover 住 panic
+	//  2. **PostQuitMessage 唤醒消息循环** —— 这是让 win.Run() 返回的唯一途径
+	//     （boot 阻塞在消息循环里，不在任何 select 中，channel 传不出去）
+	//  3. atomic 标记退出码，由 boot 在 win.Run() 返回后读
+	defer func() {
+		if r := recover(); r != nil {
+			_ = logx.Error("!! worker panic: %v\n%s", r, debug.Stack())
+			atomic.StoreInt32(&workerPanicked, 1)
+			if !noGUIMode {
+				win.FatalBox(0, fmt.Sprintf(
+					"agent worker 异常终止：\n%v\n\n这是 smith 自身的 bug，请把日志带回。", r))
+			}
+			// ⚠️ **必须用 PostMessage(hwnd, WM_QUIT) 而不是 PostQuitMessage**：
+			// 后者只投给**调用线程**的消息队列，而 worker 跑在另一个 goroutine /
+			// 另一个 OS 线程上 —— 投过去 UI 线程根本收不到，boot 会一直挂在
+			// win.Run() 里。（docs/12 §二 T1-3 复审指出的正是这类设计错误）
+			if h := win.MainHwnd(); h != 0 {
+				_ = logx.Warn("!! posting WM_QUIT to hwnd=%d to wake the gui loop", h)
+				_, _ = win.PostMessageW(h, win.WM_QUIT, 0, 0)
+			}
+		}
+	}()
+
 	systemPrompt := agent.SystemPrompt(true)
 	maxTurns := c.Agent.MaxTurns
 	if maxTurns <= 0 {

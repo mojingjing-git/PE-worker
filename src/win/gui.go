@@ -199,6 +199,21 @@ func Run() int {
 	return 0
 }
 
+// MainHwnd 返回主窗口句柄（0 = 尚未创建）。
+//
+// 供**其它 goroutine** 投递定向消息用 —— 例如 worker 崩溃时要把 WM_QUIT
+// 投到主窗口，让 UI 线程的消息循环退出（见 main.go runWorker 的 recover）。
+//
+// ⚠️ **不要**用 PostQuitMessage 代替：它只投给**调用线程**的消息队列，
+// 而 worker 跑在另一个 goroutine / 另一个 OS 线程上，投过去 UI 线程收不到。
+// PostMessage(hwnd, WM_QUIT) 才是跨线程的做法。
+//
+// gHwnd 由 UI 线程在 Run() 里写、被这里读，属于 T0 修掉的那类"跨线程共享
+// 包级全局"。当前只在"主窗口已建好"之后才被读（worker 崩溃一定晚于建窗），
+// 且指针赋值在 x86/x64 上是单字原子写，实践中安全 —— 但这**是靠约定**。
+// 若将来要求严格保证，改用 atomic.Pointer 承载 gHwnd。
+func MainHwnd() uintptr { return gHwnd }
+
 // OnSend / OnStop 是 main.go 设进来的回调，gui 线程调它们。
 //
 // 这两个全局 func var 不并发访问（wndProc 在 UI 线程），但 main.go 在

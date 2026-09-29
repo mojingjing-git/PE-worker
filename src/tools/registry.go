@@ -1,17 +1,21 @@
 // Package tools: registry.go 注册表 + 工具接口。
 //
-// 实际注册的 14 个工具（按 docs/02 §3 的分层）：
+// 实际注册的 17 个工具（按 docs/02 §3 的分层）：
 //   - read  (4): ls / cat / grep / find      ← S5 起为纯 Go 实现，不经 cmd.exe
 //   - write (3): write / edit / append
 //   - exec  (2): exec / run_script
 //   - net   (2): http_get / https_get
 //   - meta  (2): help / selftest
-//   - sys   (1): ps
+//   - sys   (4): ps / diskinfo / sysinfo / kill
 //
-// ⚠️ docs/02 §3 原计划里还有 screenshot / read / hash / sysinfo / diskinfo /
-// netinfo / kill / download —— **至今未实现**。上表是当前代码的真实状态，
-// 不要照抄 PLAN 里的清单（PLAN §3 的验收标准写了"模型自动调 diskinfo"，
-// 而 diskinfo 从未存在 —— 见 docs/11 §一）。
+// ⚠️ kill **已注册但未接入**（Run 直接返回"待 T2 接线"错误）—— 见 sysinfo.go
+// 文件头的依赖关系段。它的价值全在 M2 双层 PID 复用防护上，而那在 T2 批次
+// 才改完 win.KillTreeSelfContained 的签名。
+//
+// ⚠️ docs/02 §3 原计划里还有 screenshot / hash / netinfo / download ——
+// **至今未实现**。上表是当前代码的真实状态，不要照抄 PLAN 里的清单。
+// PLAN §3 的验收标准写了"模型自动调 diskinfo"，diskinfo 到 P3-17 才补上
+// （底层 win/sysinfo.go 的 8 个函数更早就有，只是没暴露成工具 —— 见 docs/11 §一）。
 //
 // v1-L1 硬规则：所有工具 Run() 返 (Result, error)。
 // docs/02 §7 6 条约定：白名单是软护栏 + confirm 拦危险 + exec 校验首 token +

@@ -131,15 +131,16 @@ func TestE2E_LoopWithRealTools(t *testing.T) {
 	}
 }
 
-// ---------- 3. 14 工具 Registry 完整性 ----------
+// ---------- 3. 17 工具 Registry 完整性 ----------
 
-func TestE2E_All14ToolsRegistered(t *testing.T) {
+func TestE2E_All17ToolsRegistered(t *testing.T) {
 	want := []string{
 		"exec", "run_script", "help", "selftest",
 		"ls", "cat", "grep", "find",
 		"write", "edit", "append",
 		"http_get", "https_get",
 		"ps",
+		"diskinfo", "sysinfo", "kill",
 	}
 	got := tools.All()
 	if len(got) != len(want) {
@@ -180,6 +181,9 @@ func TestE2E_ToolRiskLevels(t *testing.T) {
 		"ps":         tools.RiskRead,
 		"help":       tools.RiskRead,
 		"selftest":   tools.RiskRead,
+		"diskinfo":   tools.RiskRead,
+		"sysinfo":    tools.RiskRead,
+		"kill":       tools.RiskDangerous,
 	}
 	for name, wantRisk := range cases {
 		t0, ok := tools.Get(name)
@@ -280,7 +284,7 @@ func TestE2E_AgentClientValidation(t *testing.T) {
 // ---------- 8. 端到端：tools 实际能跑（无 mock） ----------
 
 func TestE2E_RealToolsRunWithoutLLM(t *testing.T) {
-	// 不走 LLM，直接调工具 → 验证 14 工具在 cfg.Default() 配置下都能实例化
+	// 不走 LLM，直接调工具 → 验证 17 工具在 cfg.Default() 配置下都能实例化
 	toolCtx := &tools.Context{
 		Confirm: func(string) bool { return true },
 		Config:  &tools.Config{Confirm: true, Whitelist: []string{"ver"}},

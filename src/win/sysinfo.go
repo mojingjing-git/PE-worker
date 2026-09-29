@@ -71,7 +71,90 @@ var (
 	ErrDriveType     = errors.New("win: GetDriveTypeW failed")
 	ErrComputerName  = errors.New("win: GetComputerNameW failed")
 	ErrUserName      = errors.New("win: GetUserNameW failed")
+	ErrDiskFreeSpace = errors.New("win: GetDiskFreeSpaceExW failed")
+	ErrVolumeLabel   = errors.New("win: GetVolumeInformationW failed")
 )
+
+// DiskSpace 是 GetDiskFreeSpaceExW 的三个 out 参数。
+//
+// ⚠️ 纯 Go 结构体，**不是** Win32 的布局 —— 三个 uint64 之间无 padding，
+// 386 / amd64 都是 24 字节，所以不走 S1（手工字节缓冲 + 显式偏移）那条路。
+type DiskSpace struct {
+	// FreeAvail = lpFreeBytesAvailableToCaller：调用者**实际**能用的空间。
+	// 与 FreeTotal 的差值就是配额/系统保留（Win7 PE 的 RAM disk 常见）。
+	FreeAvail uint64
+	// Total = lpTotalNumberOfBytes：盘总容量。
+	Total uint64
+	// FreeTotal = lpTotalNumberOfFreeBytes：盘上剩余总量（不含配额扣减）。
+	FreeTotal uint64
+}
+
+// DiskFreeSpace 调 GetDiskFreeSpaceExW 拿 rootPath（如 "C:\"）的容量信息。
+// 失败时返 (DiskSpace{}, err) —— 调用方必须判 err，**不要**用零值当"0 字节盘"。
+//
+// 常见失败：空光驱（无介质时 ERROR_NOT_READY）、已断开的网络盘。
+// 这类"盘存在但问不到容量"是**正常现场**，不是代码 bug，由调用方决定怎么呈现。
+func DiskFreeSpace(rootPath string) (DiskSpace, error) {
+	lp, err := Ptr(rootPath)
+	if err != nil {
+		return DiskSpace{}, fmt.Errorf("%w: %v", ErrDiskFreeSpace, err)
+	}
+	var avail, total, free uint64
+	r, _, e := pGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(lp)),
+		uintptr(unsafe.Pointer(&avail)),
+		uintptr(unsafe.Pointer(&total)),
+		uintptr(unsafe.Pointer(&free)),
+	)
+	// M1：lp 由 Ptr() 存进 wstrKeep（永久保活），但三个 out 参数是**栈上局部变量**，
+	// 转成 uintptr 后 GC 看不见 —— 必须显式 KeepAlive 到 Call 之后。
+	KeepAlive(lp)
+	KeepAlive(&avail)
+	KeepAlive(&total)
+	KeepAlive(&free)
+	if r == 0 {
+		return DiskSpace{}, fmt.Errorf("%w: %s: %v", ErrDiskFreeSpace, rootPath, e)
+	}
+	return DiskSpace{FreeAvail: avail, Total: total, FreeTotal: free}, nil
+}
+
+// VolumeLabel 调 GetVolumeInformationW 拿 rootPath 的卷标（如 "Windows" / "系统盘"）。
+//
+// **无卷标不是错误**：未格式化的分区 / RAW 卷返回成功但首字节就是 NUL，
+// 此时返 ("", nil) —— 调用方该显示 "(无卷标)"，而不是报错。
+// 真失败（ERROR_PATH_NOT_FOUND / 无权限）才返 err。
+func VolumeLabel(rootPath string) (string, error) {
+	lp, err := Ptr(rootPath)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrVolumeLabel, err)
+	}
+	// 260 = MAX_PATH（卷标最大长度），+1 留 NUL 终止位。
+	var buf [261]uint16
+	var serial, maxComp, fsFlags uint32 // 三个 out 参数用不到，但 API 签名要求非空
+	r, _, e := pGetVolumeInformationW.Call(
+		uintptr(unsafe.Pointer(lp)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&serial)),
+		uintptr(unsafe.Pointer(&maxComp)),
+		uintptr(unsafe.Pointer(&fsFlags)),
+		0, // lpFileSystemNameBuffer：不需要文件系统名，NULL 合法
+		0, // nFileSystemNameSize：同上
+	)
+	KeepAlive(lp)
+	KeepAlive(&buf)
+	if r == 0 {
+		return "", fmt.Errorf("%w: %s: %v", ErrVolumeLabel, rootPath, e)
+	}
+	n := 0
+	for n < len(buf) && buf[n] != 0 {
+		n++
+	}
+	if n == 0 {
+		return "", nil // 成功但无卷标
+	}
+	return syscall.UTF16ToString(buf[:n]), nil
+}
 
 // MemoryStatus 调 GlobalMemoryStatusEx 拿当前系统内存状态。
 // 内部设 Length = sizeof(MemoryStatusEx)，这是 API 强制要求。
@@ -111,10 +194,13 @@ func NativeSystemInfo() (SystemInfo, error) {
 }
 
 // TickCount 调 GetTickCount 拿 32-bit 毫秒 tick（49.7 天 wraparound）。
-// 不返 error：GetTickCount 永远成功（kernel 内部实现，无失败路径）。
-func TickCount() uint32 {
+//
+// L1 契约（T4-11）：GetTickCount 本身没有失败路径（kernel 内部实现），
+// 但**所有 API 统一返 (T, error)** —— 这里永远返 nil err，只是为了
+// 让调用方不必为"这个函数特判一下签名"破例。
+func TickCount() (uint32, error) {
 	r, _, _ := pGetTickCount.Call()
-	return uint32(r)
+	return uint32(r), nil
 }
 
 // LogicalDrives 调 GetLogicalDrives，bit mask 形式返回存在的盘符。
