@@ -2,7 +2,7 @@
 //
 // 启动序列（PLAN §0.6 A6 + verifier 6.6 boot 契约）：
 //
-//	[1] 命令行参数（--console / --key / --no-gui）
+//	[1] 命令行参数（--key / --no-gui；`--console` 已由 T1-4 删除，理由见 boot() 的 [1] 段）
 //	[2] 早期文件日志（GUI 起来之前就能写）
 //	[3] 加载 smith.ini（缺失走默认；缺 key 不致命，下一步报清晰错）
 //	[4] 构造 LLM 客户端（cfg 缺字段 → 返 nil 客户端，loop 调用时再报错）

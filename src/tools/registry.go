@@ -58,7 +58,7 @@ func (r RiskLevel) String() string {
 // Result 是工具执行的输出。
 //
 // Text 必填（agent loop 会把 Text 贴给 LLM）。
-// AttachImage 是图片附件路径（MEMORY §9 多模态回传通道）—— 仅 screenshot 用。
+// AttachImage 是图片附件路径（多模态回传通道）—— 仅 screenshot 用。
 //
 // ⚠️ AttachImage 目前**没有任何写入方**（P3-27 复核：全项目只有这一处出现，
 // screenshot 工具未实现，见 README 特性表）。**保留**是因为它是 Tool 接口

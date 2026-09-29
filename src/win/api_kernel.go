@@ -19,7 +19,7 @@ var (
 var (
 	pGlobalMemoryStatusEx = kernel32.NewProc("GlobalMemoryStatusEx")
 	pGetTickCount         = kernel32.NewProc("GetTickCount")
-	// 注意：pGetTickCount64 故意不声明 —— MEMORY §10 / docs/02 §8 明确禁用
+	// 注意：pGetTickCount64 故意不声明 —— AGENTS.md §2 禁用清单 / docs/02 §8 明确禁用
 	// （Win7 PE 上 GetTickCount64 缺失，会运行时炸）。要 64-bit tick 用 GetTickCount
 	// 配合 uint32 wraparound 处理。
 	pGetNativeSystemInfo = kernel32.NewProc("GetNativeSystemInfo")

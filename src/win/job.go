@@ -1,7 +1,7 @@
 // Package win: job.go 实现 Job Object 包装。
 //
 // v2 复审 + spike 实测结果：JOBOBJECT_EXTENDED_LIMIT_INFORMATION 在 386 上
-// **必须**用字节缓冲 + 显式偏移（PLAN §0.9 §1 / MEMORY §1 / spike/job/main.go:194-221）。
+// **必须**用字节缓冲 + 显式偏移（AGENTS.md §3 的 S1 / spike/job/main.go:194-221）。
 //
 // 历史教训（spike 实测抓出）：
 //   Go 在 386 上把 int64/uint64 对齐到 4 字节（Go 默认是"小对齐"），

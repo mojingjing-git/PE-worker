@@ -272,7 +272,8 @@ P0-1~P0-6 的 PE 侧验证。详见 `docs/07` §5、`docs/08`。
 > §0.7/§0.8 是 docs/07 的三轮审计结论。本节是**第四轮独立审计 + v2 全量复审**
 > （`.tmp/audit_v2/`）的**增量**：每条都给出**当前 spike 源码里的实施位置**，
 > Phase 1 移植到 `src/win/` 时**必须**把对应契约一并带走。
-> 长期记忆 `.workbuddy/memory/MEMORY.md` §11-13 是更精炼的版本。
+> 长期记忆 `.workbuddy/memory/MEMORY.md` 不入版本控制（agent runtime 产物），
+> 权威的硬规则表以 `AGENTS.md` §3 为准。
 
 ### 🔴 第 5~9 条项目硬规则（v1 第四轮 + v2 复审合并）
 

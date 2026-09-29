@@ -2,7 +2,7 @@
 //
 // 本文件实现 wstr 子模块：Go 字符串与 Win32 UTF-16 之间的安全桥接。
 //
-// 两条硬规则（PLAN §0.9 §5 + §9 / MEMORY §11 + §0.9）：
+// 两条硬规则（PLAN §0.9 §5 + §9；AGENTS.md §3 的 M1 / L5）：
 //
 //  1. syscall.UTF16PtrFromString 返回的 *uint16 一旦被转成 uintptr 交给
 //     syscall.Proc.Call，GC 就再也看不到它；从 wcs() 返回到 .Call() 真正陷入
@@ -23,7 +23,7 @@ import (
 
 // wstrKeep 持有所有交给 Win32 的 UTF-16 缓冲（单 *uint16 形式）。
 //
-// 为什么长期持有（PLAN §0.9 §5 / MEMORY §11）：
+// 为什么长期持有（PLAN §0.9 §5 / AGENTS.md §3 的 M1）：
 // syscall.UTF16PtrFromString 返回的 *uint16 一旦被转成 uintptr 交给
 // syscall.Proc.Call，GC 就再也看不到它。详见包注释。
 //

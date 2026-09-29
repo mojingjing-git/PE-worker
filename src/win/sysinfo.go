@@ -5,10 +5,10 @@
 // 零值结构体继续走探针逻辑 —— 零值会被读为"地址空间 0 MB"污染整条
 // 探针结论（spike/hello/main.go:79-89 的 v1-L1 修法复刻）。
 //
-// 显式声明：本文件**不**使用 GetTickCount64（MEMORY §10：Win7 PE 缺，
-// 运行时炸）。要 64-bit tick 用 GetTickCount 配合 uint32 wraparound。
-// 也不使用 GetVersionExA（MEMORY §10：Win8.1+ 无 manifest 返假值），
-// 改用 RtlGetVersion。
+// 显式声明：本文件**不**使用 GetTickCount64（Win7 PE 缺，运行时炸）。
+// 要 64-bit tick 用 GetTickCount 配合 uint32 wraparound。
+// 也不使用 GetVersionExA（Win8.1+ 无 manifest 返假值），改用 RtlGetVersion。
+// 这两条的禁用清单见 AGENTS.md §2。
 
 package win
 
@@ -41,9 +41,9 @@ type MemoryStatusEx struct {
 	AvailExtendedVirtual uint64
 }
 
-// OSVersionInfoW 是 RtlGetVersion 的返回值（MEMORY §10: 不用 GetVersionExA）。
+// OSVersionInfoW 是 RtlGetVersion 的返回值（不用 GetVersionExA，见 AGENTS.md §2 禁用清单）。
 // CSDVersion 是 UTF-16 定长缓冲（128 元素），GO 自动按 8 对齐 386/amd64 都是 276 字节
-// —— 与 MEMORY §1 声明的 RTL_OSVERSIONINFOW(276) 匹配。
+// —— 与 Win32 SDK 的 RTL_OSVERSIONINFOW(276) 匹配。
 type OSVersionInfoW struct {
 	OsVersionInfoSize uint32
 	MajorVersion      uint32
@@ -173,7 +173,7 @@ func MemoryStatus() (MemoryStatusEx, error) {
 	return m, nil
 }
 
-// OSVersion 调 RtlGetVersion 拿 OS 版本（MEMORY §10: 不用 GetVersionExA）。
+// OSVersion 调 RtlGetVersion 拿 OS 版本（不用 GetVersionExA，见 AGENTS.md §2 禁用清单）。
 // 失败时返 (OSVersionInfoW{}, err)。NTSTATUS 非 0 = 失败（极罕见，ntdll 几乎不会）。
 func OSVersion() (OSVersionInfoW, error) {
 	var v OSVersionInfoW

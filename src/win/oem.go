@@ -10,7 +10,7 @@
 //	CP_OEMCP(=1) 自动跟随控制台当前 OEM 代码页（中文 PE=936/GBK；
 //	若用户 chcp 65001，则自动按 UTF-8 解，无需特判）。
 //
-// 硬规则（PLAN §0.9 / MEMORY §0.9）：
+// 硬规则（PLAN §0.9；AGENTS.md §3 的 L1 / L5 / M1）：
 //   - L1：所有 API 调失败返 (string, error)，调用方必须判 err，绝不返回
 //     零值 string 继续走逻辑（零值会被读成空/乱码污染整条工具结论）。
 //   - L5：API 返失败一律透传 error，不吞错、不静默 fallback。

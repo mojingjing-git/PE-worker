@@ -75,7 +75,9 @@ var (
 	gLogSave  uintptr
 )
 
-// WNDCLASSEXW —— 386=48 / amd64=80 (MEMORY §1 已声明: 这俩结构体都是 platform-equal)
+// WNDCLASSEXW —— 386=48 / amd64=80
+// 含 uintptr 成员，尺寸随架构变（AGENTS.md §3 的 S1）；本结构体无尺寸断言，
+// 改字段后要 sp -diag 或补断言，别凭注释里的数当真。
 type wndClassExW struct {
 	CbSize        uint32
 	Style         uint32

@@ -180,7 +180,7 @@ func TestSizeProcessEntry32_PlatformDoc(t *testing.T) {
 	ptrSize := unsafe.Sizeof(uintptr(0))
 	t.Logf("processEntry32 sizeof = %d 字节 (指针 %d 字节, %d-bit 平台, sp 预期 386=556)",
 		sz, ptrSize, ptrSize*8)
-	// 386 上应是 556 (MEMORY §1 已声明)
+	// 386 上应是 556（T4-9 补的真断言就在下面几行，不靠这条注释背书）
 	// amd64 上：12 字段 4+8 对齐 + ExeFile[260]uint16 (520) = 实际可能 592 或不同
 	// 这里**不**断言 amd64 尺寸，让 sp -diag 在真 PE 上看。
 	// 【T4-9】原来这个函数**只有 t.Logf，零断言** —— 名字带 Size、注释写着
