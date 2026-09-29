@@ -507,7 +507,7 @@ MSVC x86 把 `__int64` 对齐到 8 → `4+4+7×8 = 64`，**x86 与 x64 完全相
 - **spike 探针**：**9 个**，产物 `spike386`(9) + `spike64`(9) —— Phase 0 五项（job/gui/hello/https/dlls）+ 后续四项（hta/oem2utf8/richedit/screenshot）
   - ⚠️ **spike 产物不在 `build.cmd` 门禁范围内**（详见 AGENTS.md「已知陷阱」5）
 - **工具**：**17 个已注册**（`exec` / `run_script` / `help` / `selftest` / `ls` / `cat` / `grep` / `find` / `write` / `edit` / `append` / `http_get` / `https_get` / `ps` / `diskinfo` / `sysinfo` / `kill`）
-  - **其中 16 个可跑**；`kill` **已注册未接入**（`Run` 恒返回 `errKillNotWired`）
+  - **17 个工具，全部已接线**（`kill` 在 `P3-21` 恢复 M2 双层防护并接线）
 - **未实现**：`screenshot` 等 Phase 4 视觉工具、`netinfo` / `download` / `hash`
 - **0 依赖外部库**（无 CGO / 无 -race / 无 go.mod 依赖）
 - **GUI 100% 原生 Win32**（user32 内建控件 + gdi32 字体，不引 comctl32 / 浏览器 / 任何库）
@@ -518,7 +518,7 @@ MSVC x86 把 `__int64` 对齐到 8 → `4+4+7×8 = 64`，**x86 与 x64 完全相
 [`docs/12-收尾与功能补齐计划.md`](./docs/12-收尾与功能补齐计划.md)（T0~T5）。**
 
 - [x] **S0 止血批**（6 条，含 S0-5 `WM_TIMER` 常量 —— 提前并入 S6）
-- [~] **S1 接线批** —— ctx 贯通已落地（§S1-1）；**Job 杀树已接入 `exec`**（docs/12 T2 / commit `40cfa2e`）。**`run_script` 未接线**
+- [x] **S1 接线批** —— ctx 贯通已落地（§S1-1）；**Job 杀树已接入 `exec` 与 `run_script`**（docs/12 T2 / `P3-30`）
 - [x] **S2 会话记忆批**（S2-1 Loop 提到 `for` 外 / S2-2 tool 首条回退 / S2-3 空 history 保 system）—— 落地于 `4ecd766`
 - [x] **S3 输出上限批**（512KB 硬上限）—— 落地于 `4ecd766`
 - [~] **S4 LLM 适配层批** —— S4-1~S4-5 / S4-10 已落地；S4-6 tool_calls 兜底等未做
@@ -529,11 +529,9 @@ MSVC x86 把 `__int64` 对齐到 8 → `4+4+7×8 = 64`，**x86 与 x64 完全相
 - [x] **T0 线程安全批**（`wstrKeep` 加锁，commit `637d0f8`）
 - [x] **T1 可诊断性批**（`win/msgbox.go` + `fatalExit`，commit `c5d82da`）
 - [x] **T2 Job 杀树批**（`win/jobexec.go` 接入 `exec`，commit `40cfa2e`）
-- [~] **T3 功能补齐批** —— `diskinfo` / `sysinfo` ✅；**`kill` 已注册未接入**（commit `c5d82da`）
+- [x] **T3 功能补齐批** —— `diskinfo` / `sysinfo` / `kill` 均已接线（commit `c5d82da` + `P3-21`）
 - [~] **T4 健壮性收尾批** —— 12 项中 9 项已落地；**T4-6 / T4-7 / T4-9 未做**（commit `7fada9b`）
 - [x] **T5 文档对齐批**（本批）
-- [ ] **`kill` 工具接入** —— 前置：`win.KillTreeSelfContained` 签名从 `(int, []string)` 改成 `(int, error)`
-- [ ] **`run_script` 接 Job** —— 改走 `win.StartJobCmd`
 - [ ] **T4 剩余 3 项**（T4-6 选区保护 / T4-7 `Run() (int, error)` / T4-9 `processEntry32` 尺寸断言）
 - [ ] **真机 PE 测试**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）
   - 含 docs/12 §八列的 6 项：Win7 无嵌套 job 的降级行为 / `riched20.dll` 与 `GetDiskFreeSpaceExW` 在精简镜像的存在性 / MessageBoxW 在 PE 上是否可用 / T4-6 选区保护 / `MemoryStatusEx` 在真 32 位 Windows 上的行为 / keydialog 线程迁移

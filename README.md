@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 > 一个**单 exe、纯 Go、32 位为主**的 Windows PE 应急助手。
-> 三区 GUI + 17 工具（16 可用 + 1 已注册未接入）+ 多 LLM provider，
+> 单 exe GUI + 17 工具（全部已接线）+ 多 LLM provider。工具清单与接线状态见 [`docs/12` §十一](docs/12-收尾与功能补齐计划.md)。
 > 跑在精简的 Win7 / Win10 / Win11 PE 镜像里，不依赖系统根证书库。
 
 中文代号：**铁匠 (smith)**。窗口标题 `smith - PE agent`，日志前缀 `ai > you > -> <- !!`。
@@ -39,19 +39,17 @@
 - ✅ **单 exe 部署** —— **约 5.5–6 MB**，无外部 DLL 依赖（> 体积由 `build.cmd` 构建时实测输出，此处勿手写精确字节数 >）
 - ✅ **双架构** —— 386 是主战场（Win7 PE 主力 32 位）
 - ✅ **GUI 三区** —— 多行日志 + 单行输入 + 状态栏（v1-M1 持引用 + LockOSThread）
-- ✅ **17 工具** —— exec / run_script / ls / cat / grep / find / write / edit / append / http_get / https_get / ps / help / selftest / **diskinfo** / **sysinfo** / **kill**（其中 **kill 已注册但未接入**，详见下表）
+- ✅ **17 个工具** —— exec / run_script / ls / cat / grep / find / write / edit / append / http_get / https_get / ps / help / selftest / diskinfo / sysinfo / kill。全部已接线；逐个的执行路径见 [`docs/12` §十一](docs/12-收尾与功能补齐计划.md)。
 - ✅ **3 LLM provider** —— Anthropic / OpenAI / DeepSeek（DeepSeek 特有的 `reasoning_content` 单独吸收）
 - ✅ **自带 CA bundle** —— `assets/cacert.pem` 用 `//go:embed` 嵌入，绕过 PE 镜像里过时的系统根库
 - ✅ **早期文件日志** —— GUI 起来前就能 trace，方便排查 PE 里看不到控制台的情况
 - ✅ **启动失败弹 MessageBox** —— 所有非零退出码统一收口到 `main.go` 的 `fatalExit`：先写日志再弹窗（弹窗里带日志绝对路径，PE 现场照着就能把日志带回来）。`--no-gui` 不弹（MessageBox 是模态阻塞调用，无人点 OK 会把 smoke 测试挂死）
 - ✅ **错误透传** —— 4xx body 全文带回（PE 里没浏览器能查文档）
-- ✅ **Esc / Stop 中止** —— 取消信号贯通到工具层（`tools.Context.Ctx`，`exec` / `run_script` 从 `runCtx` 派生），且 **`exec` 现在能杀整棵进程树**：走 `win.StartJobCmd`（CreateProcess + Job Object + `KILL_ON_JOB_CLOSE`），Stop 即 `TerminateJobObject`。
+- ✅ **Esc / Stop 中止** —— 取消信号贯通到工具层（`tools.Context.Ctx`，`exec` / `run_script` 从 `runCtx` 派生），且 **`exec` / `run_script` 都能杀整棵进程树**：都走 `win.StartJobCmd`（CreateProcess + Job Object + `KILL_ON_JOB_CLOSE`），Stop 即 `TerminateJobObject`。
   → **PE 场景限定（务必读）**：
   1. **Win7 无嵌套 job** —— `AssignProcessToJobObject` 失败时降级链是 `TerminateJobObject` → `KillTreeSelfContained`（M2 双层 PID 复用防护）→ `OpenProcess`+`TerminateProcess`（**此时只剩直接子进程**，孙进程需手动 `taskkill /T /F /PID`）。**"Win7 上 Assign 实际会不会失败"至今没有真机实测**（`docs/07` P0-5 只在 Win11 上验过，Win11 支持嵌套 job）。
-  2. **`run_script` 仍走 `os/exec.CommandContext`** —— 它拿到的是同一份 `Ctx` 取消信号，但**只杀 `cmd.exe` 这一个直接子进程**。要杀脚本的孙进程，目前用 `exec` 工具或 `kill` / `taskkill`。
-- ✅ **Job Object 杀整棵进程树** —— **已接入 `exec`**（`tools/exec.go` → `win.StartJobCmd` → `win/jobexec.go`，commit `40cfa2e`）。降级链与上面同款限定。
-- ⛔ **`kill` 工具已注册但未接入** —— `tools/sysinfo.go` 的 `killTool.Run` 无条件返回 `errKillNotWired`。这是**故意的**：它的正确实现必须复用 M2 双层 PID 复用防护，而 `win.KillTreeSelfContained` 当前签名是 `(int, []string)`（无 error），接线时需要先改签名。
-  → **当前版本杀孤儿进程请用 `exec` 工具，或 `taskkill /T /F /PID <pid>`。**
+- ✅ **Job Object 杀整棵进程树** —— **已接入 `exec` 与 `run_script`**（`tools/exec.go` / `tools/run_script.go` → `win.StartJobCmd` → `win/jobexec.go`）。降级链与上面同款限定。
+- ✅ **`kill`** —— 走完整 M2 双层 PID 复用防护（root 名字校验 + 子节点 `InheritedFromUniqueProcessId` 校验）。建议带期望进程名调用（`kill <pid> <name>`）：PID 被系统复用给别人时会拒绝误杀。详见 [`docs/12` §十一](docs/12-收尾与功能补齐计划.md)。
 - ⛔ **未实现**（Phase 4 视觉）—— `screenshot` 工具、图片 `attach_image` 多模态回传；`vision = 1` 目前不产生任何工具。
 - ⛔ **未实现**（PLAN §3 P3-2 系统类）—— **`netinfo`**（无 tools 层工具；可先用 `exec ipconfig` 顶替）、**`download`**（由 `http_get` / `https_get` 承担）、**`hash`**。
 
@@ -202,7 +200,7 @@ peagent/
 | 工具 | 用途 | 风险等级 |
 |---|---|---|
 | `exec` | 执行命令（白名单软护栏 + confirm 拦危险）；**已接 Job Object，Stop 杀整棵树** | exec |
-| `run_script` | 执行 .bat 脚本（仅 ASCII）；**仍走 `os/exec`，只杀直接子进程** | dangerous |
+| `run_script` | 执行 .bat 脚本（仅 ASCII）；**已接 Job Object，Stop 杀整棵树** | dangerous |
 | `ls` | 列目录 | read |
 | `cat` | 读文件 | read |
 | `grep` | 文件内搜索 | read |
@@ -217,7 +215,7 @@ peagent/
 | `selftest` | 健康检查 | read |
 | `diskinfo` | 逻辑盘容量/剩余/类型；无参则列所有盘 | read |
 | `sysinfo` | OS 版本 / 机型 / 内存 / 计算机名 / 用户名 / 已运行秒数 | read |
-| `kill` | **⛔ 已注册未接入** —— `Run` 无条件返回"未接入"错误 | dangerous |
+| `kill` | ✅ 按 PID 杀整棵进程树，带期望进程名时校验进程身份 | dangerous |
 
 **白名单是软护栏**（不阻断，只 warn），**真正拦危险操作的是 confirm 交互**。
 
@@ -238,15 +236,15 @@ peagent/
 - [x] **P2-2** —— think 块单独缩字号（EM_SETCHARFORMAT 5pt；宿主控件已从 EDIT 换成 RichEdit20W，docs/12 T4-12）
 - [x] **P2-4** —— 排版修复（双重 [I] 去除 + 防御性 \r\n）
 - [~] **Batch 1**（部分完成）—— LLM 适配层 9 条。**已落地**：H-1 OEM→UTF8（commit `4f7ced6`，`win/oem.go`，被 `exec.go` / `run_script.go` / `read.go` 调用）；H-3 重试 + H-4 CheckRedirect（`llm.go` `checkRedirect`，含 `x-api-key` 跨 host 剥离）、S4-2 Anthropic `/v1` 自适应、S4-4 `ResponseHeaderTimeout` 放宽至 90s、S4-5 `extractInputArg`、S4-10 scheme 校验。**未落地**：H-2 image wire / M-6 `attach_image` / M-7 think 剥离 / M-8 空 tool 占位（均属 Phase 4 多模态通道，见 docs/11 §四 "明确不做"）。
-- [~] **Batch 2**（部分完成）—— **ctx 贯通已落地**（`tools.Context.Ctx`，`exec` / `run_script` 从 `runCtx` 派生，docs/11 §S1-1）；**Job 杀树已接入 `exec`**（docs/12 T2，commit `40cfa2e`：`win/jobexec.go` + `tools/exec.go`）。**仍未做**：docs/11 §S1-2 原定的"生产零调用点"结论已翻转，但 `KillTreeSelfContained` 的签名改造与 `run_script` 接线尚未做。
+- [~] **Batch 2**（部分完成）—— **ctx 贯通已落地**（`tools.Context.Ctx`，`exec` / `run_script` 从 `runCtx` 派生，docs/11 §S1-1）；**Job 杀树已接入 `exec` 与 `run_script`**（docs/12 T2 / `P3-30`：`win/jobexec.go` + `tools/exec.go` + `tools/run_script.go`）。**仍未做**：docs/11 §S1-2 原定的"生产零调用点"结论已翻转。
 - [x] **Batch 3** —— `IsDialogMessage` 已接（`keydialog.go`）；**S7-6 `--console` 已删除**（docs/12 T1-4，commit `c5d82da`），改用 `win.MessageBoxW` 收口所有非零退出码。
-- [ ] **Batch 4** —— 杂项 / 安全 / 健壮（**L-2 `kill` 工具仍未接入**，见特性表）
+- [x] **Batch 4** ✅ 完整性 / 安全性 / 可观测性 —— 含 `kill` 工具接线（commit `P3-21`）
 - [x] **S6 产物门禁** —— `verify-pe.ps1` PE 头校验 + smoke 新鲜度断言 + **68 条 Win32 常量门禁** + gofmt 门禁（详见 docs/11 §S6 实施记录）
 - [x] **S8 文档对齐** —— README / PLAN / CHANGELOG / AGENTS / smith.ini.example 与代码现状对齐
 - [x] **T0 线程安全** —— `wstrKeep` 加锁（commit `637d0f8` / 复审 `338ae9a`）
 - [x] **T1 可诊断性** —— `win/msgbox.go` + `fatalExit` 错误收口 + 退出码 3 通路（commit `c5d82da`）
 - [x] **T2 Job 杀树** —— `win/jobexec.go` 接入 `exec`（commit `40cfa2e`）
-- [~] **T3 功能补齐** —— `diskinfo` / `sysinfo` 已可用；**`kill` 已注册未接入**（commit `c5d82da`）
+- [x] **T3 功能补齐** —— `diskinfo` / `sysinfo` / `kill` 全部已接线（commit `c5d82da` + `P3-21`）
 - [~] **T4 健壮性收尾** —— 12 项中 **9 项已落地**；**T4-6 / T4-7 / T4-9 未做**（见 docs/12 实施记录）
 - [ ] **T5 文档对齐** —— 本批（见 docs/12 §五之二）
 - [ ] **真机 PE 验收**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）

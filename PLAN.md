@@ -402,7 +402,7 @@ PE-agent/
 │  │  ├─ history.go             会话历史滑窗 + 截断 + 图片裁剪 **[图片裁剪：Phase 4]**
 │  │  ├─ prompt.go              系统提示词（目标 <1000 token）
 │  │  └─ verdict.go             L4：多步结果的 VERDICT 汇总
-│  ├─ tools/                    **17 个已注册工具**（其中 `kill` 已注册未接入）
+│  ├─ tools/                    **17 个工具注册表**，全部已接线
 │  │  ├─ registry.go            工具接口 + 注册表 + 分发
 │  │  ├─ context.go             Context（含 Ctx 取消信号）+ 超时组合
 │  │  ├─ read.go                ls / cat / grep / find
@@ -410,9 +410,9 @@ PE-agent/
 │  │  ├─ net.go                 http_get / https_get（自带 CA bundle）
 │  │  ├─ ps.go                  ps
 │  │  ├─ exec.go                exec（**T2 起走 `win.StartJobCmd`，Stop 杀整棵树**）
-│  │  ├─ run_script.go          run_script（**仍走 `os/exec`，只杀直接子进程**）
+│  │  ├─ run_script.go          run_script（**T2 起同走 `win.StartJobCmd`，Stop 杀整棵树**）
 │  │  ├─ meta.go                help / selftest
-│  │  ├─ sysinfo.go             diskinfo / sysinfo / **kill（已注册未接入）**（T3 落地）
+│  │  ├─ sysinfo.go             diskinfo / sysinfo / kill（均已接线）
 │  │  ├─ limited_writer.go      工具输出硬上限 512KB + 截断标记
 │  │  └─ vision.go              **[规划中，未实现]** screenshot + 图片分支 + attach_image
 │  ├─ cfg/ini.go                INI 解析（自己写）+ Save 合并模式
@@ -427,11 +427,11 @@ PE-agent/
 
 | §3 规划 | 代码现状 |
 |---|---|
-| Phase 1 `exec` | ✅ 已实现，**且 Job 杀树已接入**（`win/jobexec.go` + `tools/exec.go`，docs/12 T2 / commit `40cfa2e`）。**限定**：Win7 无嵌套 job 时降级链可能退到只杀直接子进程；**`run_script` 未接线** |
+| Phase 1 `exec` | ✅ 已实现，**且 Job 杀树已接入**（`win/jobexec.go` + `tools/exec.go` + `tools/run_script.go`，docs/12 T2 / `P3-30`）。**限定**：Win7 无嵌套 job 时降级链可能退到只杀直接子进程 |
 | Phase 2 agent loop / provider 适配 | ✅ 已实现（3 provider） |
 | Phase 3 P3-1 文件类 `hash` | ⛔ **未实现**（无 hash 工具） |
 | Phase 3 P3-2 系统类 `sysinfo` / `diskinfo` | ✅ **已实现并可用**（docs/12 T3 / commit `c5d82da`，`tools/sysinfo.go`） |
-| Phase 3 P3-2 系统类 `kill` | ⚠️ **已注册但未接入** —— `tools/sysinfo.go` 的 `killTool.Run` 无条件返回 `errKillNotWired`（等 `win.KillTreeSelfContained` 签名改造）。当前请用 `exec` 工具或 `taskkill /T /F /PID` |
+| Phase 3 P3-2 系统类 `kill` | ✅ `kill` 已接入 `win.KillTreeSelfContained`（M2 双层防护），并已进一步并入 `exec` 的 Job Object 路径 |
 | Phase 3 P3-2 系统类 `netinfo` | ⛔ **未实现**（可用 `exec ipconfig` 顶替） |
 | Phase 3 P3-3 网络类 `download` | ⚠️ 由 `http_get` / `https_get` 承担，**没有名为 `download` 的工具** |
 | Phase 4 `screenshot` + `read` 图片分支 + `attach_image` | ⛔ **未实现**（`tools/vision.go` 不存在，`Result.AttachImage` 字段已留但无写入方） |
@@ -523,14 +523,14 @@ PE-agent/
 | 批次 | 工具 | 依赖 | 状态（2026-09-29 核对） |
 |---|---|---|---|
 | **P3-1 文件类** | `read` / `write` / `edit` / `ls` / `find` / `hash` | `os` + 自写 MD5/SHA256 或 `crypto/*`（标准库） | 前 5 个 ✅（拆成 ls/cat/grep/find + write/edit/append）；**`hash` ⛔ 未实现** |
-| **P3-2 系统类** | `sysinfo` / `diskinfo` / `netinfo` / `ps` / `kill` / `run_script` | `syscall` 调 `kernel32` / `iphlpapi` | `ps` ✅ / `run_script` ✅ / `diskinfo` ✅ / `sysinfo` ✅（docs/12 T3）；**`kill` ⚠️ 已注册未接入**；**`netinfo` ⛔ 未实现**（用 `exec ipconfig` 顶替） |
+| **P3-2 系统类** | `sysinfo` / `diskinfo` / `ps` / `kill` / `run_script` | `syscall` → `kernel32` | 全部 ✅（`netinfo` 始终未实现，仍走 `exec ipconfig` 那条路） |
 | **P3-3 网络类** | `download` | `net/http`（TLS 白送） | ⚠️ **由 `http_get` / `https_get` 承担**，没有名为 `download` 的工具 |
 
 **两个必须注意的点：**
 1. **不要用 `os/user`** —— 它会拉进 `netapi32.dll` / `userenv.dll`，精简 PE 可能没有。改用 `GetUserNameW`（advapi32）。✅ 已遵守
 2. `sysinfo` 的 OS 版本要调 `ntdll!RtlGetVersion`，**不要用 `GetVersionEx`**（Win8.1+ 无 manifest 会返回假版本号）。✅ 已遵守
 
-**验收**：~~14 个工具在 PE 里逐个手测通过~~ → 实际是 **17 个注册（16 可跑）**，且**至今没有一个在真 PE 里手测过**（见 docs/12 §八「仍需真机 PE 验证」）。
+**验收**：~~14 个工具在 PE 里逐个手测通过~~ → 实际是 **17 个注册，全部已接线**（工具清单与执行路径见 [docs/12 §十一](./docs/12-收尾与功能补齐计划.md)），且**至今没有一个在真 PE 里手测过**（见 docs/12 §八「仍需真机 PE 验证」）。
 
 ---
 
@@ -653,7 +653,7 @@ echo [OK] dist\smith.exe (386) + dist\smith64.exe (amd64)
 | **M0** | `docs/07-兼容性验证报告.md` + `spike/` | **PE 里看到窗口** ← 最关键的一关 |
 | **M1** | 可运行的 GUI + `exec` | PE 里执行 `ver` 有输出，Esc 能中止 |
 | **M2** | Agent loop | PE 里对话 + 自动调工具 |
-| **M3** | ~~14 个~~ **17 个工具**（16 可跑 + `kill` 已注册未接入） | ⏳ **工具全部在 PE 里手测通过 —— 尚未做**。本机 `go test` 全过不等于 PE 现场可用（见 docs/12 §八「仍需真机 PE 验证」） |
+| **M3** | ~~14 工具~~ **17 个工具，全部已接线** | ⏳ **工具全部在 PE 里手测通过 —— 尚未做**。本机 `go test` 全过不等于 PE 现场可用（见 docs/12 §八「仍需真机 PE 验证」） |
 | **M4** | 视觉 | 模型能读出截图里的错误码 |
 | **M5** | 分发版 | U 盘插上就能用 |
 

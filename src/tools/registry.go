@@ -8,14 +8,16 @@
 //   - meta  (2): help / selftest
 //   - sys   (4): ps / diskinfo / sysinfo / kill
 //
-// ✅ kill **已接线**，走 win.KillTreeSelfContained 的完整 M2 双层 PID 复用防护：
-// root 名字校验 + 子节点 InheritedFromUniqueProcessId 校验。带期望进程名调用
-// `kill <pid> <name>` 时，PID 被系统复用给别人会**拒绝误杀**并如实报告。
+// ✅ 上表 17 个工具**全部已接线**（含 `kill`：走 win.KillTreeSelfContained 的
+// 完整 M2 双层 PID 复用防护）。工具清单、分组与逐个执行路径的**权威来源**是
+// `docs/12` §十一「能力现状（权威）」—— 本文件**不复述**接线细节，
+// 避免同一事实散落多处后漂移。
 //
 // ⚠️ docs/02 §3 原计划里还有 screenshot / hash / netinfo / download ——
-// **至今未实现**。上表是当前代码的真实状态，不要照抄 PLAN 里的清单。
-// PLAN §3 的验收标准写了"模型自动调 diskinfo"，diskinfo 到 P3-17 才补上
-// （底层 win/sysinfo.go 的 8 个函数更早就有，只是没暴露成工具 —— 见 docs/11 §一）。
+// **至今未实现**（§十一 同样列为"未实现"）。上表是当前代码的真实状态，
+// 不要照抄 PLAN 里的清单。PLAN §3 的验收标准写了"模型自动调 diskinfo"，
+// diskinfo 到 P3-17 才补上（底层 win/sysinfo.go 的 8 个函数更早就有，
+// 只是没暴露成工具 —— 见 docs/11 §一）。
 //
 // v1-L1 硬规则：所有工具 Run() 返 (Result, error)。
 // docs/02 §7 6 条约定：白名单是软护栏 + confirm 拦危险 + exec 校验首 token +

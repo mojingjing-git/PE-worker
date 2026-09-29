@@ -11,9 +11,7 @@
 
 主要交付：`dist/smith.exe`（386）+ `dist/smith64.exe`（amd64），各约 5.5~6 MB。
 
-> **能力现状（2026-09-29 实测核对）**：**17 个工具已注册**（14 旧 + `diskinfo` / `sysinfo` / `kill`），其中 **16 个可跑，`kill` 已注册但未接入**（`Run` 无条件返回 `errKillNotWired`）。
-> **Job Object 杀树已接入 `exec`**（`tools/exec.go` → `win.StartJobCmd`，commit `40cfa2e`），Esc 中止能杀整棵树 —— 但 **Win7 无嵌套 job 时会降级到只杀直接子进程**，且 **`run_script` 仍走 `os/exec` 未接线**。
-> 启动失败弹 `MessageBoxW`（`--console` 已删除）。`screenshot` 等 Phase 4 视觉工具、`netinfo` / `download` / `hash` 均未实现。详见 README 特性表。
+> **能力现状（权威）**：见 [`docs/12` §十一](docs/12-收尾与功能补齐计划.md)。**不要在本文件复述工具数量或接线状态** —— 历史上同一事实被复述 16 处、每次改代码要同步 16 个地方，已漂移过一轮。`run_script` 与 `exec` 均已走 Job Object 杀树。`win.IsProcessInJob` 是诚实降级，生产无调用点。`spike/` 只读且**不受 C1 门禁保护**。`win/` 门禁是 AST 真 diff，非 Win32 常量在 `constsExempt` 显式豁免。`build.cmd` 硬 grep 见 §2（不 grep `tls.VersionName`/`os/user`，1.20 下编译即失败）。`M1` 符号是 `wstrKeep`/`wstrKeepSlices`；`M2` 两层都在 `src/win/proc.go`。
 
 ---
 
