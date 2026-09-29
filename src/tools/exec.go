@@ -11,8 +11,9 @@ package tools
 import (
 	"errors"
 	"fmt"
-	"os/exec"
+	"io"
 	"strings"
+	"sync"
 
 	"peagent/src/logx"
 	"peagent/src/win"
@@ -66,26 +67,75 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	cctx, cancel := ctx.timeoutContext(execTimeoutSec)
 	defer cancel()
 
-	// 把整个 args 当 cmdline 传给 cmd /c — cmd /c 会按空格切分
-	cmd := exec.CommandContext(cctx, "cmd", "/c", args)
-	if ctx.Cwd != "" {
-		cmd.Dir = ctx.Cwd
+	// 【T2】改用 Job Object 启动子进程。
+	//
+	// 为什么不能继续用 os/exec.CommandContext：它只能杀掉**直接子进程**
+	// （cmd.exe）。`cmd /c start ping -t 1.1.1.1` 或任何会 spawn 孙进程的命令，
+	// 孙进程会变孤儿继续跑 —— 在 PE 里就是一堆僵死的 diskpart / dism 还锁着
+	// 磁盘（win/job.go 注释里的原话）。
+	//
+	// Go 的 os/exec 没有 job 能力（SysProcAttr 9 个字段里没有任何 job 相关），
+	// 所以必须自己 CreateProcess —— 见 win/jobexec.go。
+	jc, err := win.StartJobCmd(win.StartJobSpec{
+		ExePath:   "cmd.exe",
+		Args:      []string{"cmd.exe", "/c", args},
+		Cwd:       ctx.Cwd,
+		Hidden:    true,
+		Breakaway: true, // Win7 无嵌套 job，带该 flag 失败时 jobexec 内部会去掉重试
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("exec: 启动失败: %w", err)
 	}
-	// 【S3】不能用 CombinedOutput()：它把 stdout+stderr 全部攒进一个
-	// 无上限的 bytes.Buffer。实测 `for /L %i in (1,1,3000000) do @echo ...`
-	// 还没跑完就吃掉 14.7MB 缓冲 + 43MB heap，而 PE 跑在 32MB 内存盘上，
-	// OOM 是 runtime.throw —— recover() 接不住，进程直接消失无日志。
-	// 改用限流 writer，超限时如实告诉模型省略了多少。
+	defer jc.Close()
+
+	// 【S3 + T2】排空管道 + 限流。
+	//
+	// ⚠️ **必须并发读两个管道**。匿名管道缓冲约 64KB，一旦写满，子进程
+	// WriteFile 阻塞 → 永不退出 → Wait 永远等不到 → 整个 exec 挂死，
+	// 连 60s 超时都救不了。而本项目已知有个 14.7MB 输出的故障场景
+	//（`for /L %i in (1,1,3000000) do @echo ...`），远超任何管道缓冲。
 	cw := newCapWriter(maxToolOutputBytes)
-	cmd.Stdout = cw
-	cmd.Stderr = cw
-	runErr := cmd.Run()
+	var drainWG sync.WaitGroup
+	drainWG.Add(2)
+	go func() {
+		defer drainWG.Done()
+		_, _ = io.Copy(cw, win.OsPipe(jc.StdoutPipe()))
+	}()
+	go func() {
+		defer drainWG.Done()
+		_, _ = io.Copy(cw, win.OsPipe(jc.StderrPipe()))
+	}()
+
+	// ctx 取消（Esc/Stop 或超时）→ Kill 整棵树
+	killed := make(chan error, 1)
+	procDone := make(chan struct{})
+	go func() {
+		select {
+		case <-cctx.Done():
+			killed <- jc.Kill()
+		case <-procDone:
+			killed <- nil
+		}
+	}()
+
+	exitCode, waitErr := jc.Wait()
+	close(procDone) // 进程已退出，kill watcher 随之收尾
+	killErr := <-killed
+	// 等两个 drain goroutine 收尾，否则会丢掉尾部输出
+	drainWG.Wait()
+
+	runErr := waitErr
+	if runErr == nil && exitCode != 0 {
+		runErr = fmt.Errorf("exit status %d", exitCode)
+	}
+	if killErr != nil && runErr == nil {
+		runErr = killErr
+	}
 
 	// H-1：cmd.exe 输出是 OEM(GBK) 字节，直接 string(out) 会中文乱码。
 	// 用 win.OEMToUTF8 转成 UTF-8（L1 返 (T,error)、L5 不吞错）。
 	outStr := cw.String()
-	outBytes := []byte(outStr)
-	decoded, decErr := win.OEMToUTF8(outBytes)
+	decoded, decErr := win.OEMToUTF8([]byte(outStr))
 	if decErr == nil {
 		outStr = decoded
 	}

@@ -70,3 +70,14 @@ var (
 var (
 	pGetUserNameW = advapi32.NewProc("GetUserNameW")
 )
+
+// T2 新增：Job 杀树链路用到的 proc。
+// 全部是 kernel32 核心导出，WinPE 3.x 必含（docs/12 §三 T2-1）。
+// 可注入点见 jobexec.go 的 procXxx 变量。
+var (
+	pGetSystemDirectoryW   = kernel32.NewProc("GetSystemDirectoryW")
+	pCreatePipe            = kernel32.NewProc("CreatePipe")
+	pSetHandleInformation  = kernel32.NewProc("SetHandleInformation")
+	pResumeThread          = kernel32.NewProc("ResumeThread")
+	pGetProcessHandleCount = kernel32.NewProc("GetProcessHandleCount")
+)
