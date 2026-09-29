@@ -76,17 +76,17 @@ import "peagent/win"            // 错误：会找不到
 | **B2** | `runtime.LockOSThread()` 必须是线程入口函数**第一行**（含 keydialog 的子消息循环） | 全 `win/`。**两处**：`win.Run()`（`gui.go`，主消息循环）+ `win.PromptAPIKey()`（`keydialog.go`，首次运行密钥对话框）。后者跑在 `win.Run()` **之前**（`main.go` boot 第 [3.5] 步）且自带一个 `CreateWindowExW` + `GetMessage` 子循环，**它是本进程的第一个消息循环** —— 漏了就锁错线程，窗口冻结 |
 | **V1** | **`win/` 的 `go vet` 必须用 `-unsafeptr=false`**，否则 Win32 互操作必需的 `uintptr` ↔ `unsafe.Pointer` 互转会刷屏告警 | `build.cmd` 收尾门禁 |
 | **S1** | **含 64 位成员的手写 Win32 结构体有 386 对齐风险** → 用**手工构造字节缓冲 + 显式偏移**，不靠 `unsafe.Sizeof` 猜 | `src/win/job.go` `buildJobExtLimitInfo`（386=112 / amd64=144，`LimitFlags` 恒在偏移 16）。**这条铁律的来源：386 上写 108 字节时 `SetInformationJobObject` 返 `ERROR_BAD_LENGTH` 但不抛错，`KILL_ON_JOB_CLOSE` 静默失效** |
-| **C1** | **Win32 常量必须对照 SDK 头文件 + 实测验证**，禁止凭记忆写 | `src/win/consts_test.go`（68 条断言 + 覆盖度自检 `expectedCount = 68`，新增常量漏加断言直接红）。**真实踩坑：`WM_TIMER` 曾写成 `0x0118`（那是 `WM_SWITCHWINDOW`）** |
+| **C1** | **Win32 常量必须对照 SDK 头文件 + 实测验证**，禁止凭记忆写 | `src/win/consts_test.go` + `consts_scan_test.go`（断言表 × **AST 扫描全包 const 定义**做真 diff；非 Win32 的项目内部常量在 `constsExempt` 显式豁免）。**真实踩坑：`WM_TIMER` 曾写成 `0x0118`（那是 `WM_SWITCHWINDOW`）** |
 | **J1** | **Job Object 装配顺序不可换**：`CreateProcess(SUSPENDED)` → `CreateJobObject` → `SetKillOnJobClose` → `AssignProcessToJobObject` → `ResumeThread` | `src/win/jobexec.go`（`StartJobCmd`）。**先 Resume 再 Assign 会留一个窗口期**：子进程已经跑起来了却还没进 job，这段时间里 Stop 杀不掉它，而它可能已经 fork 出孙进程。`ResumeThread` 成功后**必须立刻关 `hThread`**。另：关 `hJob` 会因 `KILL_ON_JOB_CLOSE` **连带杀掉整棵树**，所以"启动中途失败"的路径不能无脑 `defer Close()` |
 
 **改代码前问自己：会不会破坏这 10 条？**（M1 / M2 / L1 / L4 / L5 来自 PLAN §0.9；B2 / V1 / S1 / C1 是 Phase 1 之后踩坑补上的；J1 是 T2 接线时补的）
 
 > ⚠️ **C1 门禁的边界（容易误以为"全覆盖"）**：
-> `consts_test.go` 的 `expectedCount` **只覆盖 `win/` 包**。
+> `consts_test.go` 的门禁**只覆盖 `win/` 包**。
 > `tools/` 包自己也有 Win32 常量 —— `DRIVE_*`（0–6，对照 `winbase.h`）与
 > `PROCESSOR_ARCHITECTURE_*`（0/5/6/9/12，对照 `winnt.h`）**故意放在
 > `tools/sysinfo.go`**，由 `tools/sysinfo_test.go` 单独断言（含
-> `driveTypeMaxLen` 覆盖度自检），**不在 `win/consts_test.go` 的 68 条里**。
+> `driveTypeMaxLen` 覆盖度自检），**不在 `win/consts_test.go` 的断言表里**。
 > 改 `tools/` 里的 Win32 常量要去 `tools/sysinfo_test.go` 找门禁，别在 `win/` 里找。
 >
 > ⚠️ **C1 门禁的第三块边界**：`spike/` 包的 Win32 常量**不受任何门禁保护**
@@ -106,7 +106,7 @@ import "peagent/win"            // 错误：会找不到
 - 不带 `-race`（race detector 386 + 无 CGO 不可用）
 - `unsafe.Sizeof(struct{})` 在两架构下**必然不同**（108 vs 112 这种）。**含 64 位成员时按 S1 处理：手工字节缓冲 + 显式偏移**
 - Win32 互操作遵循 spike/* 的**只读探针**（**9 个探针程序** + `spike/hta/launcher` 这个 1 个 launcher，合计 10 个 `package main`）：`spike/job` (Job+进程快照+杀树) / `spike/gui` (LockOSThread+窗口) / `spike/hello` (提交限制自检) / `spike/https` (CA bundle) / `spike/dlls` (DLL 依赖) / `spike/hta` (HTA 前端) / `spike/oem2utf8` (编码转换) / `spike/richedit` (RichEdit 控件) / `spike/screenshot` (抓屏)；`spike/hta/launcher` 用 `CreateProcessW` 拉起 `mshta` 绕开沙箱的命令行 LOLBin 检测。**注意：`launcher` 不进 `dist/spike{386,64}`，那两目录仍是 9 个 exe。**
-- **新加 Win32 常量必须同时在 `src/win/consts_test.go` 加断言**（有 `expectedCount` 覆盖度自检，漏了会红）。⚠️ **但这只对 `win/` 包成立** —— `tools/` 包的 Win32 常量门禁在 `tools/sysinfo_test.go`（见 §3 顶部注）
+- **新加 Win32 常量必须同时在 `src/win/consts_test.go` 加断言**（有 AST 真 diff 门禁：包内 `const` 定义与断言表机械比对，漏了会红）。⚠️ **但这只对 `win/` 包成立** —— `tools/` 包的 Win32 常量门禁在 `tools/sysinfo_test.go`（见 §3 顶部注）
 - `runtime.LockOSThread()` **必须是**线程入口函数第一行（晚于 `CreateWindowExW` 会让消息循环线程 ≠ 建窗线程 → 窗口冻结）。**`win.Run()` 和 `win.PromptAPIKey()` 两处都要**，后者跑在前者之前（B2）
 
 ### 5. 步间审核（当前工作模式）
@@ -226,7 +226,7 @@ F:\AI\01_项目\PE-agent\
 - [ ] 没引入 `os/user`（拉 netapi32.dll）
 - [ ] 新增工具：`tools/` + 在 `tools/tools_test.go` 的 `allToolNames` 加名字 + `meta.go` 的 `expectRegisteredTools` 加 1 + **重命名 `src/test/e2e_test.go` 的 `TestE2E_All17ToolsRegistered`**（共 3 处）
 - [ ] 新增 Win32 proc：`win/api_*.go` 声明 + 386 字节缓冲（如有 struct，按 S1 手工构造）
-- [ ] **新增 Win32 常量：`win/` 包 → `win/consts_test.go` 加断言**（`expectedCount` 同步 +1，否则门禁红）；**`tools/` 包 → `tools/sysinfo_test.go`**（不在 `win/` 门禁范围内）
+- [ ] **新增 Win32 常量：`win/` 包 → `win/consts_test.go` 加断言**（AST 真 diff 门禁会自动红；非 Win32 的项目内部常量需在 `constsExempt` 补一行）；**`tools/` 包 → `tools/sysinfo_test.go`**（不在 `win/` 门禁范围内）
 - [ ] 386 + amd64 双 build + test 都过
 - [ ] **`build.cmd` 仍是 CRLF**（LF 会让构建永久挂死，见「已知陷阱」6）
 - [ ] **`git archive HEAD` 干净检出能 `go build ./src/...`**（新增文件漏 add 的头号症状，见「已知陷阱」7）

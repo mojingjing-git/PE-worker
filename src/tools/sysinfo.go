@@ -12,7 +12,8 @@
 //
 //	（winbase.h / winnt.h）逐条核对，值在 tools/sysinfo_test.go 里有断言。
 //	它们**故意放在 tools 包而不是 win 包** —— win/ 的每个 Win32 常量都要
-//	在 win/consts_test.go 登记（expectedCount 门禁），本批次不改那个文件。
+//	在 win/consts_test.go 登记（门禁见 win/consts_scan_test.go 的 AST 真 diff），
+//	本批次不改那个文件。
 package tools
 
 import (
