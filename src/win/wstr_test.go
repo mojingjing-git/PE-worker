@@ -66,12 +66,48 @@ func TestFromCmdline_NUL(t *testing.T) {
 	}
 }
 
-// TestHold_Nil 验证 Hold(nil) 不 panic（重要：路径上 nil 出现不该崩）。
-func TestHold_Nil(t *testing.T) {
-	Hold(nil) // 期望：不 panic
+// wstrKeepLen 在锁下读 wstrKeep 长度。
+// wstrKeep 是无锁语义的包级全局（T0 之后靠 wstrKeepMu 保护 append），
+// 测试断言它的长度时必须走同一把锁，否则并发用例（wstr_concurrency_test.go）
+// 与本文件互相构成 data race。
+func wstrKeepLen() int {
+	wstrKeepMu.Lock()
+	defer wstrKeepMu.Unlock()
+	return len(wstrKeep)
 }
 
-// TestKeepAlive_NotPanic 验证 KeepAlive 正常调用不 panic。
+// TestHold_Nil 验证 Hold(nil) 不 panic（重要：路径上 nil 出现不该崩），
+// 且**不会把 nil 塞进保活集合**。
+//
+// 修 B4：原实现是裸 `Hold(nil) // 期望：不 panic`，零断言 —— "不崩"这件事
+// Go 本来就不需要测（崩了就是 panic，整个包全红），所以这条门禁什么都拦不住。
+// 这里给出真断言：nil 必须被忽略（长度不变），并配一条正向对照证明
+// Hold 对非 nil 指针确实会 append（否则上面那条会因为 Hold 整个不做事而恒真）。
+func TestHold_Nil(t *testing.T) {
+	before := wstrKeepLen()
+	Hold(nil) // 期望：不 panic，且不改变 wstrKeep
+	after := wstrKeepLen()
+	if after != before {
+		t.Fatalf("Hold(nil) 改变了 wstrKeep 长度: before=%d after=%d —— nil 被 append 进保活集合了？", before, after)
+	}
+
+	// 正向对照：非 nil 必须 +1（Ptr 自己 +1，Hold 再 +1）。
+	p, err := Ptr("hold-nil-probe")
+	if err != nil {
+		t.Fatalf("Ptr: %v", err)
+	}
+	Hold(p)
+	if got := wstrKeepLen(); got != after+2 {
+		t.Fatalf("Hold(非 nil) 后期望 wstrKeep 长度 = %d（Ptr +1、Hold +1），实际 %d", after+2, got)
+	}
+}
+
+// TestKeepAlive_NotPanic 验证 KeepAlive 正常调用不 panic，**并**给出正向断言。
+//
+// 修 B4：原实现只有 `KeepAlive(p) // 期望：不 panic`，零断言。
+// 诚实说明覆盖边界：runtime.KeepAlive 的效果依赖 GC 时序，**任何测试都无法
+// 判定它被删掉了仍会红**。这里能真拦住的回归是"KeepAlive 改坏了它的入参"
+// （清零 / 换指针 / panic）以及"Ptr 不再 NUL 终止"——这三条都是真断言。
 func TestKeepAlive_NotPanic(t *testing.T) {
 	s := "test"
 	p, err := Ptr(s)
@@ -79,6 +115,27 @@ func TestKeepAlive_NotPanic(t *testing.T) {
 		t.Fatal(err)
 	}
 	KeepAlive(p) // 期望：不 panic
+	// 正向断言 1：KeepAlive 之后指针仍指向我们放进去的内容（没被清零/换掉）。
+	utf16 := (*[5]uint16)(unsafe.Pointer(p))
+	want := []uint16{'t', 'e', 's', 't'}
+	for i, c := range want {
+		if utf16[i] != c {
+			t.Fatalf("KeepAlive 后 utf16[%d]=%d, want %d", i, utf16[i], c)
+		}
+	}
+	// 正向断言 2：第 5 个 uint16 必须是 NUL —— Win32 侧按 C 字符串读，
+	// 缺了就是野指针读越界。Ptr 少写终止符时这条会红。
+	if utf16[4] != 0 {
+		t.Errorf("Ptr(%q) 缺 NUL 终止符: utf16[4]=%d", s, utf16[4])
+	}
+	// 正向断言 3：KeepAlive 还接 []byte（buildJobExtLimitInfo 的手工字节缓冲
+	// 走这条路，之前完全没有测试覆盖）。同样要有断言而不是"没崩就算过"。
+	buf := make([]byte, 16)
+	buf[0] = 0xAB
+	KeepAlive(buf)
+	if buf[0] != 0xAB {
+		t.Errorf("KeepAlive([]byte) 改写了入参: buf[0]=%#x, want 0xab", buf[0])
+	}
 }
 
 // TestPtrNotGCed 是 PLAN §0.9 §5 的核心契约验证：
