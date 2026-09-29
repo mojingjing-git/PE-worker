@@ -117,7 +117,6 @@ var (
 	procSetKillOnJobClose        = win32SetKillOnJobClose
 	procAssignProcessToJobObject = win32AssignProcessToJobObject
 	procTerminateJobObject       = win32TerminateJobObject
-	procCreatePipe               = win32CreatePipe
 	procResumeThread             = win32ResumeThread
 )
 
@@ -136,14 +135,6 @@ func win32AssignProcessToJobObject(hJob, hProcess uintptr) error {
 
 func win32TerminateJobObject(hJob uintptr, exitCode uint32) error {
 	return TerminateJobObject(hJob, exitCode)
-}
-
-func win32CreatePipe() (rd, wr uintptr, err error) {
-	var r, w syscall.Handle
-	if err := createPipe(&r, &w); err != nil {
-		return 0, 0, err
-	}
-	return uintptr(r), uintptr(w), nil
 }
 
 func win32ResumeThread(hThread uintptr) error {
@@ -493,17 +484,21 @@ func exeBaseName(spec StartJobSpec) string {
 	return exe
 }
 
-// StdoutPipe / StderrPipe 返回管道读端（调用方负责读到 EOF）。
-func (j *JobCmd) StdoutPipe() uintptr { return j.stdoutRd }
-func (j *JobCmd) StderrPipe() uintptr { return j.stderrRd }
-func (j *JobCmd) RootPID() uint32     { return j.rootPID }
-func (j *JobCmd) RootName() string    { return j.rootName }
+// RootPID / RootName 供 M2 降级杀树用（KillTreeSelfContained 靠名字防 PID 复用）。
+//
+// ⚠️ 这里曾经还有 StdoutPipe / StderrPipe 两个"返裸句柄"的方法（P3-27 已删）：
+// 裸句柄会和 Close() 抢同一个 Close 归属，见 TakeStdoutPipe 的说明。
+func (j *JobCmd) RootPID() uint32  { return j.rootPID }
+func (j *JobCmd) RootName() string { return j.rootName }
 
 // Wait 等待子进程退出，返回退出码。
 //
 // ⚠️ **调用方必须先并发读完 stdout/stderr 两个管道**（本项目用 capWriter），
 // 否则子进程写满管道缓冲会阻塞、永不退出，这里就永远等不到。
 // 正确用法：两个 goroutine 各自 drain，Wait 与它们并行，最后 join。
+//
+// 匿名管道缓冲约 64KB，写满后子进程会阻塞、永不退出 → Wait 死锁；
+// 本项目已知有 14.7MB 输出的故障场景，远超任何管道缓冲。
 func (j *JobCmd) Wait() (uint32, error) {
 	pWaitForSingleObject.Call(j.hProc, waitInfinite)
 	var code uint32
@@ -599,7 +594,8 @@ func (j *JobCmd) Close() error {
 // TakeStdoutPipe / TakeStderrPipe 把管道读端**移交**给调用方。
 //
 // ⚠️ 为什么要"移交"而不是共享：管道句柄只有**一个** Close 归属。
-// 早期版本让调用方用 OsPipe() 拿 *os.File，而 JobCmd.Close() 也关同一个句柄
+// 早期版本让调用方把裸句柄直接包成 *os.File（该 helper 已删，见 P3-27），
+// 而 JobCmd.Close() 也关同一个句柄
 // —— 于是 `os.File` 的 GC finalizer 与 Close() **双重关闭**。如果中间那个句柄
 // 号已被系统复用，Close 关掉的就是 runtime 自己的句柄，症状是**间歇性**的
 //
@@ -634,15 +630,4 @@ func (j *JobCmd) TakeStderrPipe() *os.File {
 		return nil
 	}
 	return os.NewFile(uintptr(h), "jobcmd-stderr")
-}
-
-// OsPipe 把 Win32 管道读端转成 *os.File，供调用方 io.Copy 读到 EOF。
-//
-// ⚠️ 调用方**必须**并发读 stdout 与 stderr 两个管道，直到 EOF。
-// 匿名管道缓冲约 64KB，写满后子进程会阻塞、永不退出 → Wait 死锁。
-// 本项目已知有 14.7MB 输出的故障场景，远超任何管道缓冲。
-//
-// 由调用方负责 Close。
-func OsPipe(h uintptr) *os.File {
-	return os.NewFile(uintptr(h), "jobcmd-pipe")
 }

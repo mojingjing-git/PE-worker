@@ -234,11 +234,6 @@ func buildAnthropicTools(defs []ToolDef) []anthropicTool {
 	return out
 }
 
-// asBlocks 把 []map 转成可序列化的 interface{}。
-// 现在 anthropicMessage.Content 直接就是 []map[string]interface{}，所以
-// 这层包装不再需要；保留 stub 以便将来 Content 改类型时不用到处改。
-func asBlocks(in []map[string]interface{}) []map[string]interface{} { return in }
-
 // mergeAdjacentRoles 合并相邻同 role（Anthropic 强制规则）。
 func mergeAdjacentRoles(msgs []anthropicMessage) []anthropicMessage {
 	if len(msgs) <= 1 {

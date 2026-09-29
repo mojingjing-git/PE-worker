@@ -32,7 +32,17 @@ import (
 	"unsafe"
 )
 
-// MessageBox 风格位（与 Win32 一致；这里只列本项目会用到的）。
+// MessageBox 风格位（winuser.h:9101-9145，逐条对照，见 consts_test.go 断言表）。
+//
+// ⚠️ MB_* 里目前只有 MB_ICONHAND / MB_SETFOREGROUND / MB_TOPMOST 被
+// MessageBoxFatalIcon 用到，其余是**整组保留的 Win32 词汇表**（与 api_*.go 里
+// 那批无引用 LazyProc 同一取舍：常量零成本，而 PE 现场加一个提示框样式时
+// 直接抄这里的值、并且已经被断言表对着 SDK 钉过，比临时去翻头文件更可靠）。
+//
+// ⚠️ 不要再加 MessageBox*Icon 这类**组合常量**：P3-27 删掉的三个
+// （Error/Warn/Info）全是零引用 —— Error 与 Fatal 表达式逐字相同，
+// 加第二个名字只会让人猜"Error 和 Fatal 到底哪个才是启动失败用的"。
+// 需要别的样式就按 MB_* 组合。
 const (
 	MB_OK               = 0x00000000
 	MB_OKCANCEL         = 0x00000001
@@ -45,10 +55,7 @@ const (
 	MB_SETFOREGROUND    = 0x00010000
 	MB_TOPMOST          = 0x00040000
 	MB_TASKMODAL        = 0x00002000
-	MessageBoxErrorIcon = MB_ICONHAND | MB_SETFOREGROUND | MB_TOPMOST
 	MessageBoxFatalIcon = MB_ICONHAND | MB_SETFOREGROUND | MB_TOPMOST
-	MessageBoxWarnIcon  = MB_ICONEXCLAMATION | MB_SETFOREGROUND | MB_TOPMOST
-	MessageBoxInfoIcon  = MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST
 )
 
 // MessageBox 弹一个模态消息框，返回 (用户选的按钮, error)。

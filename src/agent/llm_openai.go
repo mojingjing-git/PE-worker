@@ -78,10 +78,10 @@ type openAITool struct {
 type openAIResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
-	Created int64  `json:"created"`
+	Created int64  `json:"created"` // 仅用于解码，Go 侧从不读（P3-27 标注）
 	Model   string `json:"model"`
 	Choices []struct {
-		Index        int               `json:"index"`
+		Index        int               `json:"index"` // 仅用于解码，Go 侧从不读（P3-27 标注）
 		Message      openAIRespMessage `json:"message"`
 		FinishReason string            `json:"finish_reason"`
 	} `json:"choices"`
@@ -96,13 +96,10 @@ type openAIRespMessage struct {
 	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
-type openAIErrorResp struct {
-	Error struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-		Code    string `json:"code"`
-	} `json:"error"`
-}
+// openAIErrorResp 已删（P3-27）：零引用 —— 错误体在 llm.go 的重试循环里
+// 以原始 []byte 截断带进 error 字符串（4xx 截 500、429/5xx 截 200），
+// 从不做结构化解码。真要读 OpenAI 错误体的 message/type/code 时，
+// 再照 llm_anthropic.go 的 anthropicError 重建。
 
 // ----- 实现 Client -----
 

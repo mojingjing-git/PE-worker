@@ -74,7 +74,8 @@ type SystemInfo struct {
 var (
 	ErrMemoryStatus  = errors.New("win: GlobalMemoryStatusEx failed")
 	ErrRtlGetVersion = errors.New("win: RtlGetVersion failed")
-	ErrSysInfo       = errors.New("win: GetNativeSystemInfo failed")
+	// ErrSysInfo 已删（P3-27）：GetNativeSystemInfo 是 **void 函数、永不失败**
+	//（见 NativeSystemInfo 注释），所以根本不存在需要 sentinel 的失败路径。
 	ErrLogicalDrives = errors.New("win: GetLogicalDrives failed")
 	ErrDriveType     = errors.New("win: GetDriveTypeW failed")
 	ErrComputerName  = errors.New("win: GetComputerNameW failed")

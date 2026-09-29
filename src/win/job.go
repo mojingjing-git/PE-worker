@@ -34,7 +34,7 @@ var (
 	ErrSetInformationJobObject  = errors.New("win: SetInformationJobObject failed")
 	ErrAssignProcessToJobObject = errors.New("win: AssignProcessToJobObject failed")
 	ErrTerminateJobObject       = errors.New("win: TerminateJobObject failed")
-	ErrQueryProcessJob          = errors.New("win: query process job failed")
+	// ErrQueryProcessJob 已删（P3-27）：IsProcessInJob 恒返 false，从不返错。
 )
 
 // buildJobExtLimitInfo 手工构造字节缓冲，按架构选 112 (x86) / 144 (x64) 字节。
