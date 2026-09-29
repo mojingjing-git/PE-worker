@@ -20,8 +20,16 @@ import (
 )
 
 // MemoryStatusEx 是 GlobalMemoryStatusEx 的返回值。
-// 字段顺序与 Win32 文档完全一致（含 padding 由 Go 编译器按平台 ABI 自动处理）。
-// 386 / amd64 两边尺寸都是 72（uint64 字段 + uint32 字段，无混合大小，Go 自然对齐 8）。
+// 字段顺序与 Win32 文档完全一致。**尺寸两架构都是 64 字节**
+// （2×uint32 + 7×uint64；MSVC x86 也把 DWORDLONG 对齐到 8）。
+// ⚠️ 历史注释曾误写 72 —— 照它"修正"会让 GlobalMemoryStatusEx 返
+// ERROR_INVALID_PARAMETER（实测 cbLength=64 成功、36 失败）。
+// 教训：72 从来不是量出来的，是心算滑的 —— 旧注释自己写的理由
+// （"无混合大小，Go 自然对齐 8"）加起来就是 64，与它自己的结论自相矛盾；
+// 又因为没有任何 unsafe.Sizeof 断言钉住这个数，编译器也不会报错，
+// 于是它以"很权威的口吻"活了下来，还跟 tools/sysinfo.go 的 64 和
+// docs/11 S7-9 的判词互相打架。**注释会骗人，只有断言不会。**
+// 门禁见 sysinfo_test.go TestMemoryStatusExSize。
 type MemoryStatusEx struct {
 	Length               uint32
 	MemoryLoad           uint32

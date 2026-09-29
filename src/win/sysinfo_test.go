@@ -1,10 +1,24 @@
 package win
 
-import "testing"
+import (
+	"testing"
+	"unsafe"
+)
 
 // 8 个 smoke test，每个调一次 Win32 API 并验证返值非零/非空。
 // v1-L1 核心契约：所有 API 调用必须返 (T, error)，失败时调用方能立刻看到。
 // 这些 test 同时验证"声明的 proc 名拼写对、struct 布局对、Length 字段设对"。
+
+// TestMemoryStatusExSize 钉 cbSize=64：MSVC x86 也把 DWORDLONG 对齐到 8，
+// 所以 386/amd64 两架构都是 64 字节。历史上 win/sysinfo.go 的注释误写 72，
+// 一旦有人"照注释修正"就会撞 ERROR_INVALID_PARAMETER（tools/sysinfo.go 实测 64 成功、36 失败）。
+func TestMemoryStatusExSize(t *testing.T) {
+	sz := unsafe.Sizeof(MemoryStatusEx{})
+	if sz != 64 {
+		t.Fatalf("unsafe.Sizeof(MemoryStatusEx{}) = %d, want 64（两架构一致）", sz)
+	}
+	t.Logf("unsafe.Sizeof(MemoryStatusEx{}) = %d", sz)
+}
 
 func TestMemoryStatus_Smoke(t *testing.T) {
 	m, err := MemoryStatus()
