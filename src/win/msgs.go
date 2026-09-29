@@ -77,11 +77,18 @@ const (
 	WM_PASTE         = 0x0302
 	WM_CLEAR         = 0x0303
 
-	// EM_EXLIMITTEXT (WM_USER+53, richedit.h:101) 抬文本上限。
+	// EM_EXLIMITTEXT (WM_USER+53, richedit.h:100) 抬文本上限。
 	// RichEdit20W 默认 64KB；日志区 logMaxChars=60000 的截断逻辑依赖上限 > 60000。
 	EM_EXLIMITTEXT = 0x0435
-	// EM_GETLIMITTEXT (WM_USER+37) —— 测试用，读回当前上限
-	EM_GETLIMITTEXT = 0x0437
+	// EM_GETLIMITTEXT (WM_USER+37, richedit.h:86) —— 测试用，读回当前上限。
+	//
+	// ⚠️ 历史错值 0x0437：那是 richedit.h:102 的 EM_EXSETSEL (WM_USER+55)，
+	// 不是任何"读上限"的消息。错值的来源是 winuser.h:11287 也有一个同名
+	// #define EM_GETLIMITTEXT = 0x00D5（win32k 旧 RichEdit 的），
+	// 两处同名不同值，很容易抄错那一个。
+	// 权威：Windows SDK 10.0.22621.0 um/richedit.h:86，(WM_USER+37) = 0x0425。
+	// 门禁见 consts_test.go。
+	EM_GETLIMITTEXT = 0x0425
 
 	// EM_SETCHARFORMAT wParam flags
 	SCF_SELECTION = 0x0001 // 染当前选区（EM_SETSEL 选中的）

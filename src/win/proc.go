@@ -30,9 +30,11 @@ const (
 	errnoNone         = 0
 
 	// 进程访问权限
-	processTerminate        = 0x0001
-	processQueryLimited     = 0x1000 // PROCESS_QUERY_LIMITED_INFORMATION
-	processQueryInformation = 0x0400
+	// processQueryInformation = 0x0400 (winnt.h:12210) 已删：包内从未使用
+	// （只用 processTerminate|processQueryLimited），job_test.go / proc_test.go
+	// 各自局部重声明了自己的副本，不依赖这里的定义。
+	processTerminate    = 0x0001
+	processQueryLimited = 0x1000 // PROCESS_QUERY_LIMITED_INFORMATION
 
 	// CreateProcess 标志
 	createSuspended        = 0x00000004
