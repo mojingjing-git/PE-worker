@@ -91,6 +91,22 @@ type wndClassExW struct {
 	HIconSm       uintptr
 }
 
+// ModuleHandle 返回本 exe 的 hInstance（GetModuleHandleW(NULL)）。
+//
+// P3-32 之前这个模式在包内有 5 处裸调 `pGetModuleHandleW.Call(0)`
+// （gui.go 的 Run/onCreate + keydialog.go 的三处），每处都 `_, _, _` 把
+// 错误丢掉。收拢到这里一处。
+//
+// 为什么返回裸 uintptr 而不是 (uintptr, error)：GetModuleHandleW 传 NULL 时
+// 返回的是"创建当前进程的可执行模块句柄"—— 按 MSDN 这一路**没有失败**，
+// 只有 lpModuleName 非 NULL 且模块不存在才返 NULL。所以它属于 L1 里
+// "void 等价物"的豁免范围，与包内既有的 NativeSystemInfo()（GetNativeSystemInfo
+// 也是 void）同一处理。若将来要传非 NULL 模块名，那时才需要 (uintptr, error)。
+func ModuleHandle() uintptr {
+	h, _, _ := pGetModuleHandleW.Call(0)
+	return h
+}
+
 // Run 是 GUI 入口。**第一行必须是 runtime.LockOSThread()**（v1-B2）。
 // 返回时整个进程退出（在 P1-11 main.go 里被 os.Exit 调）。
 // 创建主窗口、注册窗口类、起消息循环。
@@ -98,13 +114,13 @@ func Run() int {
 	runtime.LockOSThread() // v1-B2: 必须在 CreateWindowExW 之前
 
 	// 拿本进程 hInstance
-	hInst, _, _ := pGetModuleHandleW.Call(0)
+	hInst := ModuleHandle()
 
 	// 注册窗口类
 	className, _ := Ptr("PeAgentGui")
 	defer Hold(className)
 
-	cursor, _, _ := pLoadCursorW.Call(0, uintptr(32512)) // IDC_ARROW = 32512
+	cursor, _, _ := pLoadCursorW.Call(0, uintptr(IDC_ARROW))
 
 	cls := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
@@ -469,7 +485,7 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 // onCreate 在 WM_CREATE 时建三区子控件。
 // 资源: idLog (EDIT) / idInput (EDIT) / idSend (BUTTON) / idStop (BUTTON) / idStatus (STATIC)
 func onCreate(hwnd uintptr) {
-	hInst, _, _ := pGetModuleHandleW.Call(0)
+	hInst := ModuleHandle()
 	stockFont, _, _ := pGetStockObject.Call(DEFAULT_GUI_FONT)
 
 	// 【T4-12】日志区优先用 RichEdit20W，而不是普通 EDIT。

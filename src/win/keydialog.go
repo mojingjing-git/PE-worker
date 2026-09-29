@@ -98,6 +98,24 @@ func init() {
 	buttonClass = mustClass("BUTTON")
 }
 
+// mustClass 取标准 Win32 控件 class 名的 UTF-16 指针。
+//
+// 【P3-32】这里**故意绕过** win.Ptr()，直接用裸 syscall.UTF16PtrFromString ——
+// 与包内其它地方（gui.go / onKeyDialogCreate 的所有字符串）走 Ptr() 的做法
+// 相反。这样做是安全的，不违反 M1：
+//
+//   - M1 要保活的是"**转成 uintptr 交给 Win32** 的 *uint16"：一旦 *uint16
+//     只被 uintptr 引用，GC 就再也看不到它，可能在 .Call 陷入内核前回收。
+//   - 这里三个返回值立刻被 init() 存进**包级全局** stringClass / editClass /
+//     buttonClass。这三个 *uint16 变量从进程启动起就是 GC root，堆上的
+//     UTF-16 缓冲永远可达，不存在"只剩 uintptr 引用"的窗口。
+//   - 唯一会踩坑的写法是"Ptr() 之后又不 Hold()"（gui.go 早期 S7-4 修过的
+//     utf16Ptr0 栈地址问题），这里既不调 Ptr() 也不调 Hold()，反而没有
+//     这个中间态。
+//
+// 保留裸调用的理由：init() 里三个 class 名是**一次性的进程级**分配，
+// 走 Ptr() 会让它们永久挂在 wstrKeep 上（永不 [:0]，见 M1），
+// 为 3 条永不释放的字符串付这份常驻内存没有意义。
 func mustClass(name string) *uint16 {
 	p, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
@@ -117,7 +135,7 @@ func RegisterKeyDialogClass() error {
 	if keyDialogClassReg {
 		return nil
 	}
-	hInst, _, _ := pGetModuleHandleW.Call(0)
+	hInst := ModuleHandle()
 	name, err := syscall.UTF16PtrFromString("SmithKeyDialog")
 	if err != nil {
 		return err
@@ -301,7 +319,7 @@ func keyDialogCollectResult(hwnd uintptr) {
 //	y=158: checkbox "保存到磁盘"
 //	y=200: OK / Cancel buttons
 func onKeyDialogCreate(hwnd uintptr) {
-	hInst, _, _ := pGetModuleHandleW.Call(0)
+	hInst := ModuleHandle()
 
 	// 1) 协议预设 label
 	lblProv, _ := Ptr("协议预设:")
@@ -512,7 +530,7 @@ func PromptAPIKey(existingKey, existingProv, existingURL, existingModel string) 
 	keyDialogBaseURLHwnd = 0
 	keyDialogModelHwnd = 0
 
-	hInst, _, _ := pGetModuleHandleW.Call(0)
+	hInst := ModuleHandle()
 
 	// 屏幕居中
 	sw, _, _ := pGetSystemMetrics.Call(0) // SM_CXSCREEN

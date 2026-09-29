@@ -15,7 +15,6 @@ package win
 import (
 	"errors"
 	"fmt"
-	"syscall"
 	"unsafe"
 )
 
@@ -155,14 +154,9 @@ func VolumeLabel(rootPath string) (string, error) {
 	if r == 0 {
 		return "", fmt.Errorf("%w: %s: %v", ErrVolumeLabel, rootPath, e)
 	}
-	n := 0
-	for n < len(buf) && buf[n] != 0 {
-		n++
-	}
-	if n == 0 {
-		return "", nil // 成功但无卷标
-	}
-	return syscall.UTF16ToString(buf[:n]), nil
+	// 成功但首字节就是 NUL（未格式化分区 / RAW 卷）时，UTF16ZToString 返 ""，
+	// 与本函数"无卷标不是错误"的契约一致（见上方注释）。
+	return UTF16ZToString(buf[:]), nil
 }
 
 // MemoryStatus 调 GlobalMemoryStatusEx 拿当前系统内存状态。
@@ -247,7 +241,10 @@ func ComputerName() (string, error) {
 	if r == 0 {
 		return "", fmt.Errorf("%w: %v", ErrComputerName, e)
 	}
-	return syscall.UTF16ToString(buf[:n]), nil
+	// n 是 API 回填的字符数，但缓冲区不足时 MSDN 允许它超过 len(buf)，
+	// 所以不拿它去切 buf，改由 UTF16ZToString 自己扫 NUL 定界（P3-32）。
+	// n 仍必须传（in/out 参数，API 签名要求）。
+	return UTF16ZToString(buf[:]), nil
 }
 
 // UserName 调 GetUserNameW 拿当前用户名。失败时返 ("", err)。
@@ -261,5 +258,6 @@ func UserName() (string, error) {
 	if r == 0 {
 		return "", fmt.Errorf("%w: %v", ErrUserName, e)
 	}
-	return syscall.UTF16ToString(buf[:n]), nil
+	// 同 ComputerName：n 只作为 in/out 参数存在，不用于切 buf（P3-32）。
+	return UTF16ZToString(buf[:]), nil
 }

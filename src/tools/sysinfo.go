@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"peagent/src/win"
 )
@@ -213,7 +212,11 @@ func (sysinfoTool) Run(_ *Context, _ string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("sysinfo: %w", err)
 	}
-	csd := strings.TrimSpace(utf16String(v.CSDVersion[:]))
+	// CSDVersion 是 RTL_OSVERSIONINFOW 里的定长 [128]uint16 字段（含尾部 NUL
+	// 填充），用 win 侧的 UTF16ZToString 统一转（P3-32：原先本文件有一份
+	// 私有的 utf16String 副本，与 win/sysinfo.go 三处重复，已删）。
+	// v 是 win.OSVersion() **按值返回**的局部变量，转完即丢，不跨调用持有。
+	csd := strings.TrimSpace(win.UTF16ZToString(v.CSDVersion[:]))
 	if csd == "" {
 		csd = "无补丁信息"
 	}
@@ -379,15 +382,6 @@ func humanBytes(n uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
-}
-
-// utf16String 把定长 UTF-16 数组（含尾部 NUL 填充）转成 Go 字符串。
-func utf16String(a []uint16) string {
-	n := 0
-	for n < len(a) && a[n] != 0 {
-		n++
-	}
-	return syscall.UTF16ToString(a[:n])
 }
 
 func init() {

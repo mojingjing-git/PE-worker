@@ -152,6 +152,30 @@ func Hold(p *uint16) {
 	}
 }
 
+// UTF16ZToString 把"定长 UTF-16 缓冲 + 尾部 NUL 填充"转成 Go 字符串。
+//
+// 收拢的是同一个模式在 4 处的重复（P3-32）：先从第一个 NUL 起扫描出有效长度，
+// 再交给 syscall.UTF16ToString。调用点分别是 VolumeLabel / ComputerName /
+// UserName 三个 Win32 探针的定长栈数组，加上 tools 侧读 CSDVersion。
+//
+// 为什么不进 wstrKeep：方向是反的。Ptr / FromCmdline 是"Go 字符串 → UTF-16
+// 指针交给 Win32"，指针被转成 uintptr 后 GC 就看不见了，才需要长期保活。
+// 本函数是"Win32 写好的 UTF-16 缓冲 → Go 字符串"，做的是**值拷贝**：
+// syscall.UTF16ToString 内部先建一个全新的 []rune 再 string()，返回值不
+// 引用入参 a 的任何内存。调用方转完即丢，a 本身也是栈上或局部的定长数组，
+// 所以不存在悬垂 UTF-16 引用，**不违反 M1**。
+//
+// 调用方约定：a 通常是 `var buf [N]uint16` 这样的定长数组加尾部 NUL。
+// 传 a[:]（整段）而不是 a[:n]（调用方自己算的长度）—— 后者在 API 返回的
+// 长度大于 len(buf) 时会切片越界 panic，前者由 NUL 扫描兜住真实边界。
+func UTF16ZToString(a []uint16) string {
+	n := 0
+	for n < len(a) && a[n] != 0 {
+		n++
+	}
+	return syscall.UTF16ToString(a[:n])
+}
+
 // KeepAlive 是 runtime.KeepAlive 的便利包装，让代码 grep "win.KeepAlive"
 // 就能看到所有需要保活的点。
 //
