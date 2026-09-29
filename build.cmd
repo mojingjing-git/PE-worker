@@ -31,8 +31,10 @@ rem   - CGO_ENABLED=0 (pure static, no extra DLL; PE image may lack them)
 rem   - -H windowsgui (GUI mode, no black console)
 rem   - -trimpath (strip local paths, reproducible output)
 rem   - -ldflags "-s -w" (strip symbols + debug info, ~30% smaller)
-rem   - No Go 1.21+ APIs (go -C / tls.VersionName / os/user /
-rem     GetTickCount64 / GetVersionExA / RegGetValueA)
+rem   - No Win32 API that is unsafe on a Win7 PE image: GetTickCount64 /
+rem     GetVersionExA / RegGetValueA. See the banned API list below.
+rem   - Go 1.21+ stdlib symbols are deliberately NOT grepped: they fail to
+rem     compile on 1.20, so `go build` already catches them.
 rem
 rem Order matters (docs/11 S6-1/S6-2):
 rem   vet -> gofmt -> build -> PE verify -> test
@@ -65,18 +67,29 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem banned API list (PLAN sec 0.7 / Go 1.20 to 1.21 differences)
-rem 1.21+ APIs would fail to compile on 1.20; pre-grep to fail early.
-rem Patterns require "(" or ".Call" after the name to skip "we don't use this" comments.
-echo [INFO] scanning for Go 1.21+ API usage...
+rem banned API list (PLAN sec 0.7)
+rem
+rem We grep ONE class of symbol only: Win32 APIs that compile fine on Go 1.20
+rem but blow up at RUNTIME on a Win7 PE image, or return bogus values with no
+rem manifest. Patterns require "(" or ".Call" after the name so that a
+rem "we do not use this" comment cannot trip the gate.
+rem
+rem NOT grepped (mis-added before; the lesson is recorded here on purpose):
+rem   - tls.VersionName / os/user / slices / maps / log/slog / builtin
+rem     min, max, clear. These FAIL TO COMPILE on Go 1.20, so `go build`
+rem     already turns the build red; a grep only adds false positives.
+rem     Proof: adding the pattern `max[ ]*(` made findstr match the comment
+rem     "max(timeoutS, ...)" at src/agent/llm.go:195, so build.cmd exited
+rem     /b 1 on every single run. findstr cannot tell comments from code,
+rem     so grepping this class is a dead end, not a gate.
+rem   - errors.Join was introduced in Go 1.20; it was never banned.
+rem
+rem NOTE: keep this block ASCII-only. cmd.exe reads the file in the OEM
+rem codepage, and a line ENDING in a multi-byte character (a fullwidth colon,
+rem a CJK char) desyncs the byte stream: cmd then tries to EXECUTE the first
+rem word of the next line. Symptom: exit 255 right after the Go version line.
+echo [INFO] scanning for Win7-PE-unsafe Win32 API usage...
 set "BANNED_HITS="
-rem (1) Go 1.21+ stdlib additions
-findstr /S /R /C:"tls\.VersionName" src\*.go >nul 2>&1
-if not errorlevel 1 ( echo   [FAIL] tls.VersionName & set "BANNED_HITS=!BANNED_HITS! tls.VersionName" )
-findstr /S /R /C:"os/user" src\*.go >nul 2>&1
-if not errorlevel 1 ( echo   [FAIL] os/user import & set "BANNED_HITS=!BANNED_HITS! os/user" )
-rem (2) Win32 APIs that fail in Win7 PE / return bad data without manifest
-rem    Pattern: "GetTickCount64(" or "pGetTickCount64.Call" — skip comment-only mentions.
 findstr /S /R /C:"GetTickCount64[ ]*(" src\*.go >nul 2>&1
 if not errorlevel 1 ( echo   [FAIL] GetTickCount64( & set "BANNED_HITS=!BANNED_HITS! GetTickCount64" )
 findstr /S /R /C:"pGetTickCount64\.Call" src\*.go >nul 2>&1
@@ -89,7 +102,7 @@ if defined BANNED_HITS (
     echo [FATAL] Banned APIs found:%BANNED_HITS%
     exit /b 1
 )
-echo [OK] no banned APIs
+echo [OK] no banned Win32 APIs
 
 rem go vet (dual arch)
 rem NOTE: win/ uses uintptr<->unsafe.Pointer casts, which is required by the
@@ -168,14 +181,13 @@ rem only test touching it passed because it merely checked "file exists".
 rem ------------------------------------------------------------------
 set "PS_EXE="
 where pwsh.exe >nul 2>&1 && set "PS_EXE=pwsh.exe"
-if not defined PS_EXE where powershell.exe >nul 2>&1 && set "PS_EXE=powershell.exe"
 
 if defined PS_EXE (
     echo [INFO] verifying PE headers via %PS_EXE% ...
     %PS_EXE% -NoProfile -ExecutionPolicy Bypass -File verify-pe.ps1 dist\smith.exe dist\smith64.exe
     if errorlevel 1 ( echo [FATAL] PE artifact verification failed & exit /b 1 )
 ) else (
-    echo [WARN] pwsh.exe / powershell.exe not found; SKIPPING artifact verification
+    echo [WARN] pwsh.exe ^(PowerShell 7^) not found; SKIPPING artifact verification
     echo [WARN] verify manually that dist\smith.exe has PE Subsystem == 2
 )
 

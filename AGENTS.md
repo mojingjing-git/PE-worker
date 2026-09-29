@@ -47,12 +47,23 @@ import "peagent/win"            // 错误：会找不到
 
 - toolchain 位置：`C:\Users\wrz20\.workbuddy\binaries\go\versions\1.20.14\`
 - **不能用 1.21+ 的 stdlib / 新 API**（`go build` 会过、`go vet` 报 ban 列表或直接 1.20 编不过）
-- 禁用清单（`build.cmd` 启动时硬 grep）：
-  - `tls.VersionName`（1.21+）
-  - `os/user`（拉 netapi32/userenv.dll，PE 镜像里缺）
+- 禁用清单（`build.cmd` 启动时硬 grep，**只有这 3 条 Win32 规则**）：
   - `GetTickCount64(` / `pGetTickCount64.Call`（Win7 PE 缺，会运行时炸）
   - `GetVersionExA(`（Win8.1+ 无 manifest 返假值）
   - `RegGetValueA(`（Win7 注册表 API 不全）
+
+> **为什么不 grep 1.21+ 的 stdlib**：`tls.VersionName` / `os/user` / `slices` / `maps` /
+> `log/slog` / 内建 `min`·`max`·`clear` 在 Go 1.20 上**编译即失败**，`go build` 自己会红。
+> `build.cmd` 的 findstr **区分不了注释和代码** —— 曾加 `max[ ]*(` 后命中
+> `src/agent/llm.go:195` 注释里的 `max(timeoutS, ...)`，导致 `build.cmd` 每次 `exit /b 1`。
+> 所以门禁只保留"**1.20 能编过、但 Win7 PE 上运行才炸**"的那 3 条 Win32 API。
+>
+> ⚠️ 这条推理对 `os/user` **并不完全成立**：`os/user` 从 Go 1.0 就在，1.20 上**编得过**
+> （真禁用理由是它拉 `netapi32.dll` / `userenv.dll`，PE 镜像里缺）。但那个理由属于
+> 导入表范畴，而 `verify-pe.ps1` 只查 `msvcrt` / `api-ms-win-crt-*` / `ucrt*` / `vcruntime`，
+> **不查 `netapi32`** —— 所以 `os/user` 目前没有自动化门禁，靠本节这条人工规则兜。
+> 真要自动化，正确位置是 `verify-pe.ps1` 的导入表白名单，不是 findstr。
+
 - `ticker.NewTicker` 1.20 有；`time.AfterFunc` 1.20 有 — 别用 1.21+ 才加的
 
 ### 3. 项目硬规则（PLAN §0.9 v1 第四轮 + v2 复审）
