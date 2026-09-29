@@ -276,6 +276,10 @@ P0-1~P0-6 的 PE 侧验证。详见 `docs/07` §5、`docs/08`。
 
 ### 🔴 第 5~9 条项目硬规则（v1 第四轮 + v2 复审合并）
 
+> ⚠️ **"第 5~9 条"是本文件的编号**（第 1~4 条在前面的 §0.x）。项目当前的**硬规则总数是 10 条** ——
+> 本节的 5 条（M1/M2/L1/L4/L5）加上 Phase 1 之后补的 B2/V1/S1/C1/**J1**。
+> 权威表在 `AGENTS.md` §3，续修顺序与门禁落点看那份。
+
 > **5. GC 野指针（v1 第四轮 M1 / v2 复审 §11）—— 当前 spike 实施：`spike/gui/main.go:142-150`**
 > `syscall.UTF16PtrFromString` 返回的 `*uint16` 一旦转成 `uintptr` 交给 `syscall.Proc.Call`，
 > GC **就再也看不到它**；从 `wcs()` 返回到 `.Call()` 真正陷入内核之间发生 GC，内存可能
@@ -362,17 +366,18 @@ PE-agent/
 ├─ build.cmd                    ← 锁死 Go 1.20 + 版本断言 + vet/gofmt/PE校验/test 门禁
 ├─ verify-pe.ps1                PE 头校验（Subsystem / 导入表 / 体积）
 ├─ smith.ini.example            配置模板（权威字段表见 §0.6 B6）
-├─ docs/01..05,07..11           专项设计（06 编号空缺）；11 = 审计整改计划 S0~S8
-├─ spike/                       Phase 0 + 前端探针（**只读，可读不可 import**，9 个程序）
+├─ docs/01..05,07..13           专项设计（06 编号空缺）；11 = 审计整改计划 S0~S8，12 = 收尾与功能补齐 T0~T5，13 = 死代码与过时规则整改
+├─ spike/                       Phase 0 + 前端探针（**只读，可读不可 import**）：9 个探针 + 1 个 launcher = 10 个 `package main`
 │  ├─ hello/main.go             P0-1 能不能跑 + P0-6 内存（`-alloc N`，带余量刹车）
 │  ├─ dlls/main.go              P0-2 显式 LoadDLL 声明的依赖集（不依赖网络）+ 枚举运行期模块
 │  ├─ gui/main.go               P0-3 纯 Go 建 Win32 窗口（`-secs N` 自动关）
 │  ├─ https/main.go             P0-4 五步 TLS 对照（TCP / 跳过校验 / 系统库 / 捆绑 bundle / 完整 GET）
 │  ├─ job/main.go               P0-5 Job Object + 自实现杀树（`-diag` 打结构体布局）
-│  ├─ hta/                      HTA 前端探针（含 SPIKE_REPORT.md）
+│  ├─ hta/                      HTA 前端探针（含 SPIKE_REPORT.md）+ hta/launcher/（CreateProcessW 拉 mshta）
 │  ├─ oem2utf8/                 OEM → UTF-8 转换探针
 │  ├─ richedit/                 RichEdit 控件探针（think 染色的可行性依据）
 │  └─ screenshot/               抓屏探针
+│     （以上 9 个探针进 dist/spike{386,64}；launcher 不构建）
 ├─ assets/
 │  ├─ assets.go                 `//go:embed cacert.pem`
 │  └─ cacert.pem                Mozilla CA bundle（更新见 assets.go 注释）

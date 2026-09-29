@@ -22,8 +22,10 @@
 ;
 ; [agent]       agent loop behavior
 ;   confirm     1 = dangerous ops need user confirmation (default: 1)
-;   whitelist   comma-separated first-tokens that exec/run_script will allow
-;               without warning (soft barrier, not a sandbox)
+;   whitelist   comma-separated first-tokens that exec will allow
+;               without warning (soft barrier, not a sandbox).
+;               NOTE: only `exec` consumes it -- `run_script` and `download`
+;               do NOT go through the whitelist (see src/tools/registry.go).
 ;   maxturns    max tool-call loop rounds before giving up (default: 10)
 ;   imghistory  how many recent rounds keep images (Phase 4, NOT IMPLEMENTED, default: 2)
 ;

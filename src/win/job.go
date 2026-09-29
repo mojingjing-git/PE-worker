@@ -136,9 +136,21 @@ func TerminateJobObject(hJob uintptr, exitCode uint32) error {
 //     (0x124) 且 inJob=false，拿它当归属判据会给出错误结论。
 //
 // 所以这里**不探测**。一个诚实返回 false 的函数，远好于一个会崩进程的函数。
-// 调用方若需要"是否已在 job 里"，请走 Plan 的降级路径（docs/11 S0-4 三层兜底：
-// IsProcessInJob 检测 → CREATE_BREAKAWAY_FROM_JOB → taskkill /T /F），
-// 并对本函数恒 false 做防御，不要把 true 当成"已验证在 job 里"。
+// 调用方若需要"是否已在 job 里"，请对本函数恒 false 做防御，不要把 true 当成
+// "已验证在 job 里"。
+//
+// ⚠️ **降级链的权威位置是 `jobexec.go` 的 `(*JobCmd).Kill`，不是本文件。**
+// 本文件这段旧注释写的三步（`IsProcessInJob` 检测 → `CREATE_BREAKAWAY_FROM_JOB` →
+// `taskkill /T /F`）是 **docs/11 S0-4 当时的设想，从未实现**，且已整体作废：
+//
+//	① `IsProcessInJob` 恒返 false（上文），拿它当第一级判据等于没有第一级；
+//	② `taskkill /T /F` 只出现在 `src/tinker.c` 的注释里，**生产零调用点**；
+//	③ `CREATE_BREAKAWAY_FROM_JOB` 由 `StartJobCmd` 走 `CreateProcess(SUSPENDED)`
+//	   路径处理，**不是**一个可事后查询的状态。
+//
+// 真实实现是 `jobexec.go` 的三级降级（每级都记日志）：① `TerminateJobObject`；
+// ② `KillTreeSelfContained`（M2 双层防护）；③ `OpenProcess`+`TerminateProcess`
+// （只杀直接子进程）。
 func IsProcessInJob(hProcess uintptr) (bool, error) {
 	_ = hProcess // 故意不探测，见上方实测记录
 	return false, nil

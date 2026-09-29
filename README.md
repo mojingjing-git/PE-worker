@@ -160,7 +160,7 @@ peagent/
 ├── build.cmd              # 一键 vet + gofmt + build + PE 校验 + test
 ├── verify-pe.ps1          # PE 头校验（Subsystem / 导入表 / 体积）
 ├── smith.ini.example      # 配置文件模板
-├── docs/                  # 10 篇专项设计（06 编号空缺；09/10/11 为前端方案与审计整改，12 = 收尾与功能补齐）
+├── docs/                  # 12 篇专项设计（06 编号空缺；11 = 审计整改，12 = 收尾与功能补齐，13 = 死代码与过时规则整改）
 │   ├── 01-WinPE-agent-开源项目调研.md
 │   ├── 02-工具集设计建议.md
 │   ├── 03-GUI设计与命名建议.md
@@ -171,10 +171,12 @@ peagent/
 │   ├── 09-HTA前端方案.md
 │   ├── 10-Sciter前端方案.md
 │   ├── 11-审计整改计划.md      # S0~S8 八批整改的定义与实施记录
-│   └── 12-收尾与功能补齐计划.md # T0~T5 五批（T0-T4 已落地，见实施记录）
-├── spike/                 # Phase 0 预研 + 前端探针（只读，9 个独立程序）
+│   ├── 12-收尾与功能补齐计划.md # T0~T5 五批（T0-T4 已落地，见实施记录）
+│   └── 13-死代码与过时规则整改计划.md # A~F 批：死代码清理 + 过时断言订正
+├── spike/                 # Phase 0 预研 + 前端探针（只读，9 个探针 + 1 个 launcher = 10 个 main）
 │   ├── job/ gui/ hello/ https/ dlls/   # Phase 0 五项
-│   └── hta/ oem2utf8/ richedit/ screenshot/   # 后续新增四项探针
+│   ├── hta/ oem2utf8/ richedit/ screenshot/   # 后续新增四项探针
+│   └── hta/launcher/       # CreateProcessW 拉 mshta（绕开沙箱 LOLBin 检测，不进 dist/）
 ├── assets/                # 嵌入资源
 │   ├── assets.go
 │   └── cacert.pem         # Mozilla CA bundle
@@ -190,7 +192,7 @@ peagent/
 └── dist/                  # 产物（部分入仓）
     ├── smith.exe            # Phase 1 主产物
     ├── smith64.exe
-    └── spike{386,64}/     # 9 个 spike 程序（PE 测试用）
+    └── spike{386,64}/     # 9 个 spike exe / 架构（PE 测试用；launcher 不构建，不在此列）
 ```
 
 ---
@@ -245,7 +247,7 @@ peagent/
 - [x] **T1 可诊断性** —— `win/msgbox.go` + `fatalExit` 错误收口 + 退出码 3 通路（commit `c5d82da`）
 - [x] **T2 Job 杀树** —— `win/jobexec.go` 接入 `exec`（commit `40cfa2e`）
 - [x] **T3 功能补齐** —— `diskinfo` / `sysinfo` / `kill` 全部已接线（commit `c5d82da` + `P3-21`）
-- [~] **T4 健壮性收尾** —— 12 项中 **9 项已落地**；**T4-6 / T4-7 / T4-9 未做**（见 docs/12 实施记录）
+- [~] **T4 健壮性收尾** —— 12 项中 **10 项已落地**；**T4-6 / T4-7 未做**（见 docs/12 实施记录）
 - [ ] **T5 文档对齐** —— 本批（见 docs/12 §五之二）
 - [ ] **真机 PE 验收**（spike/{job,gui,hello} 拷 U 盘进 Win7/10/11 PE 验）
 
@@ -318,9 +320,11 @@ GOARCH=386 go test -v -run TestE2E ./src/test/...
 | `tools` | 17 工具 smoke + 输出硬上限 + 注入防护 + 通配匹配 + edit 空 old 防护 + `DRIVE_*` / `PROCESSOR_ARCHITECTURE_*` 常量断言 | `read.go` `write.go` `net.go` `ps.go` `exec.go` `run_script.go` `meta.go` `sysinfo.go` `limited_writer.go` `sysinfo_test.go` |
 | `win` | UTF-16 持引用 + 线程安全 / Job Object 386 字节缓冲契约 / **Job 杀树端到端 + 降级链注入测试** / 进程快照 / OEM→UTF8 / **Win32 常量门禁（68 条）** / GUI 消息 | `wstr.go` `job.go` `jobexec.go` `proc.go` `oem.go` `sysinfo.go` `consts_test.go` `gui.go` `msgbox.go` |
 
-> ⚠️ **T4-9 未做**：`TestSizeProcessEntry32_PlatformDoc`（`proc_test.go`）**仍是零断言的 `t.Logf`**。
-> 而 `processEntry32` 恰好是 M2 依赖的结构体（§S1 那条 386 对齐铁律正是被尺寸错位坑出来的）。
-> 修它只要加一句 `if ptrSize==4 && sz != 556 { t.Fatalf(...) }`。
+> ⚠️ **T4-6 未做**：`appendLog` 只发 `EM_SETSEL`，**没有 `EM_GETSEL`**，所以日志追加
+> 会抢走用户当前选区、`truncateLogIfNeeded` 会在**用户选区**上做 `EM_SETSEL + WM_CLEAR`。
+> 需真机 desktop 才能验。
+> （原并列为"T4-6 / T4-7 / T4-9 未做"的 **T4-9 已由 `P3-25` 补上** ——
+> `src/win/proc_test.go:190-193` 现在有真断言 `if ptrSize==4 && sz != 556 { t.Fatalf }`。）
 
 ---
 
@@ -329,7 +333,7 @@ GOARCH=386 go test -v -run TestE2E ./src/test/...
 读 [`AGENTS.md`](./AGENTS.md) —— 给 AI agent 写的工作约定，里面有人类也适用的：
 
 - Go 1.20.14 锁死 + 禁用 API 清单
-- 9 条项目硬规则（M1/M2/L1/L4/L5/B2/V1/S1/C1）
+- 10 条项目硬规则（M1/M2/L1/L4/L5/B2/V1/S1/C1/J1）
 - 386/amd64 双架构注意事项
 - 步间审核流程
 - 提交 message 格式

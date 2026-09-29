@@ -23,10 +23,10 @@
 | 2 | [`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md) | **整改批次 S0~S8 的定义 + 实施记录** |
 | 3 | [`docs/12-收尾与功能补齐计划.md`](./docs/12-收尾与功能补齐计划.md) | **收尾批次 T0~T5 的定义 + 实施记录**（T0–T4 已落地） |
 | 4 | `docs/01-05,07-10` | 各专项设计（06 编号空缺） |
-| 5 | `spike/` | 技术预研产物（**只读，9 个独立程序**，可读不可 import） |
+| 5 | `spike/` | 技术预研产物（**只读，9 个探针 + 1 个 launcher = 10 个 `package main`**，可读不可 import） |
 | 6 | `src/` | **本项目唯一可改的代码区** |
 
-**改代码前先查 PLAN.md §0.9**（v1 第四轮 + v2 复审合并的 9 条项目硬规则）+ 本文 §3（Phase 1 之后补的 B2/V1/S1/C1/J1）。`src/win/` 是最容易踩雷的（Win32 ABI + 386 结构体对齐）。
+**改代码前先查 PLAN.md §0.9**（v1 第四轮 + v2 复审合并的硬规则：PLAN 自己的编号是第 **5~9** 条，即本文 §3 表的前 5 行 M1/M2/L1/L4/L5）+ 本文 §3 硬规则表（**共 10 条**：M1/M2/L1/L4/L5 来自 PLAN §0.9，B2/V1/S1/C1/J1 是 Phase 1 之后踩坑补上的）。`src/win/` 是最容易踩雷的（Win32 ABI + 386 结构体对齐）。
 
 ---
 
@@ -105,7 +105,7 @@ import "peagent/win"            // 错误：会找不到
 - 不带 CGO（PE 镜像里没 C 编译器）
 - 不带 `-race`（race detector 386 + 无 CGO 不可用）
 - `unsafe.Sizeof(struct{})` 在两架构下**必然不同**（108 vs 112 这种）。**含 64 位成员时按 S1 处理：手工字节缓冲 + 显式偏移**
-- Win32 互操作遵循 spike/* 的**只读探针**（当前 9 个程序）：`spike/job` (Job+进程快照+杀树) / `spike/gui` (LockOSThread+窗口) / `spike/hello` (提交限制自检) / `spike/https` (CA bundle) / `spike/dlls` (DLL 依赖) / `spike/hta` (HTA 前端) / `spike/oem2utf8` (编码转换) / `spike/richedit` (RichEdit 控件) / `spike/screenshot` (抓屏)
+- Win32 互操作遵循 spike/* 的**只读探针**（**9 个探针程序** + `spike/hta/launcher` 这个 1 个 launcher，合计 10 个 `package main`）：`spike/job` (Job+进程快照+杀树) / `spike/gui` (LockOSThread+窗口) / `spike/hello` (提交限制自检) / `spike/https` (CA bundle) / `spike/dlls` (DLL 依赖) / `spike/hta` (HTA 前端) / `spike/oem2utf8` (编码转换) / `spike/richedit` (RichEdit 控件) / `spike/screenshot` (抓屏)；`spike/hta/launcher` 用 `CreateProcessW` 拉起 `mshta` 绕开沙箱的命令行 LOLBin 检测。**注意：`launcher` 不进 `dist/spike{386,64}`，那两目录仍是 9 个 exe。**
 - **新加 Win32 常量必须同时在 `src/win/consts_test.go` 加断言**（有 `expectedCount` 覆盖度自检，漏了会红）。⚠️ **但这只对 `win/` 包成立** —— `tools/` 包的 Win32 常量门禁在 `tools/sysinfo_test.go`（见 §3 顶部注）
 - `runtime.LockOSThread()` **必须是**线程入口函数第一行（晚于 `CreateWindowExW` 会让消息循环线程 ≠ 建窗线程 → 窗口冻结）。**`win.Run()` 和 `win.PromptAPIKey()` 两处都要**，后者跑在前者之前（B2）
 
@@ -170,16 +170,17 @@ F:\AI\01_项目\PE-agent\
 ├── build.cmd               # 一键 vet + gofmt + build + PE 校验 + test（默认/clean/test）
 ├── verify-pe.ps1           # PE 头校验（Subsystem / 导入表 / 体积）
 ├── smith.ini.example       # 配置文件模板（字段表见 PLAN §0.6 B6）
-├── docs/                   # 12 篇专项设计（06 编号空缺；11/12 为整改计划）
+├── docs/                   # 12 篇专项设计（06 编号空缺；11/12/13 = 整改计划）
 │   ├── 11-审计整改计划.md    #   S0~S8 的整改前后对照与实施记录
-│   └── 12-收尾与功能补齐计划.md #   T0~T5 的批次定义与实施记录（T0–T4 已落地）
-├── spike/                  # Phase 0 预研 + 前端探针（只读，9 个独立 Go 程序）
+│   ├── 12-收尾与功能补齐计划.md #   T0~T5 的批次定义与实施记录（T0–T4 已落地）
+│   └── 13-死代码与过时规则整改计划.md # A~F 批：死代码清理 + 过时断言订正
+├── spike/                  # Phase 0 预研 + 前端探针（只读，9 个探针 + 1 个 launcher = 10 个 main）
 │   ├── job/                #   Job Object + 进程快照 + 杀树 + 386 字节缓冲
 │   ├── gui/                #   Win32 窗口 + LockOSThread + UTF-16 持引用
 │   ├── hello/              #   提交限制自检（输出全部 ASCII）
 │   ├── https/              #   嵌入 CA bundle + TLS 1.2 + 4 步对照
 │   ├── dlls/               #   可加载 DLL 清单
-│   ├── hta/                #   HTA 前端探针
+│   ├── hta/                #   HTA 前端探针（+ launcher/ 子目录：CreateProcessW 拉 mshta）
 │   ├── oem2utf8/           #   OEM → UTF-8 转换探针
 │   ├── richedit/           #   RichEdit 控件探针
 │   └── screenshot/         #   抓屏探针

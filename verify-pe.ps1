@@ -45,8 +45,11 @@ $BannedDllPrefixes = @(
     'api-ms-win-crt-', 'api-ms-win-core-'
 )
 
-# Size cap in bytes. Current correct artifacts: 386 ~5.44MB, amd64 ~5.58MB.
-# Anything over 8MB usually means -ldflags "-s -w" was dropped.
+# Size cap in bytes. This script PRINTS the measured size of every file it checks,
+# so that output is the authoritative number -- do not hand-write artifact sizes into
+# documentation (AGENTS.md "目录结构" closing note). A correct pure-Go build with
+# -trimpath -ldflags "-s -w" lands well under this cap; anything over it usually
+# means -ldflags "-s -w" was dropped.
 $MaxSizeBytes = 8MB
 
 function Read-PeInfo {

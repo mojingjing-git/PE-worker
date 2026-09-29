@@ -145,11 +145,14 @@ OpenProcess + TerminateProcess    ← 只杀直接子进程
 那句 `Access is denied.` 来自 Win11 本机的 `CREATE_BREAKAWAY_FROM_JOB` 被拒，**不是** Win7 的 Assign 失败。
 **所以 Win7 上的降级行为是"预期会降级"，不是"已验证会降级"。**
 
-**未做**（本批遗留，不在已完成范围）：
+**未做**（本批遗留，不在已完成范围；带 ⏫ 的是 `P3-34` 的订正）：
 - `win/proc.go` 的 `KillTreeSelfContained` 签名**仍是 `(int, []string)`**，没有改成 `(int, error)`
+  > ⏫ **这条仍然成立**（`proc.go:215`）。但"kill 工具因此无法接入"已过期 —— `kill` 由 `P3-21` 接线。
 - kill 轮次之间**没有补 `sleep(300)`**（`spike/job` 有、产品代码没有）→ 三轮预算可能被同一批
   "正在终止"的进程吃光
+  > ⏫ **已订正（`P3-34`）**：已补，`src/win/proc.go:305-312`（`pSleep.Call(300)` + 后果注释）。
 - **`tools/run_script.go` 仍在用 `os/exec.CommandContext`**，没接 Job
+  > ⏫ **已订正（`P3-34`）**：已由 `P3-30` 改走 `win.StartJobCmd`（`run_script.go:80`）。
 
 #### T3 · 功能补齐：`diskinfo` + `sysinfo` + `kill`（`tools/sysinfo.go`，L1）
 
@@ -262,7 +265,7 @@ MSVC x86 把 `__int64` 对齐到 8 → `4+4+7×8 = 64`，**x86 与 x64 完全相
 | S8-6 | PLAN §2 目录结构列的 5 个文件全不存在 | `win/api.go` / `win/dpi.go` / `tools/file.go` / `tools/sys.go` / `tools/vision.go` 从未存在。已按 `src/` 实际文件重写，并加「与 §3 阶段计划的对应」表标注哪些**未实现** |
 | S8-7 | PLAN B6 权威字段表缺 `provider` | `cfg/ini.go` 已实现 `[llm] provider`（openai/anthropic/deepseek），已补入字段表 |
 | S8-8 | AGENTS 硬规则表符号名偏差 | M1 的 `strKeep` → 实际 `wstrKeep` / `wstrKeepSlices`；M2 的 `job.go + proc.go` → **两层防护全在 `proc.go`**，job.go 只是 Job API 封装 |
-| S8-9 | README/AGENTS 目录结构过时 | docs 说 7 篇（实际 10 篇）、spike 说 5 个（实际 9 个） |
+| S8-9 | README/AGENTS 目录结构过时 | docs 说 7 篇（实际 10 篇）、spike 说 5 个（实际 9 个） ⏫ 2026-09-28 的实测值，现行值见下方「仓库统计」与 `docs/11` §S8-9 superseded 注 |
 | S8-11 | commit 格式被 `[shared]` / `[hta]` 前缀破坏 | 已在 AGENTS §5/提交约定标注"不要加前缀" |
 
 **Added（AGENTS 硬规则表从 5 条扩到 9 条）**：
@@ -497,14 +500,17 @@ MSVC x86 把 `__int64` 对齐到 8 → `4+4+7×8 = 64`，**x86 与 x64 完全相
 > **2026-09-29 重新实测口径**。下面刻意不写死用例总数与产物体积 ——
 > 精确数字随每次提交漂移，写进文档必然腐烂。核对命令见各条目。
 
-- **commit 数**：`git rev-list --count HEAD`（本次核实 **55**）
+- **commit 数**：`git rev-list --count HEAD` —— **本文件刻意不写死这个数字**（每提交一次就过期；
+  2026-09-29 核实当时是 55）。核对命令即上面那条。
 - **测试包**：6 个 —— `agent` / `cfg` / `logx` / `test` / `tools` / `win`
   - **用例数以 `go test -list '.*' ./src/... | Select-String -Pattern '^Test'` 的输出为准**
   - 本次核实（顶层 `Test*` 函数数，**不含 `t.Run` 子测试**，共 **209**）：
     `agent` 50 / `cfg` 17 / `logx` 5 / `test` 10 / `tools` 68 / `win` 59
 - **主产物**：`dist/smith.exe`（386）+ `dist/smith64.exe`（amd64），各**约 5.5~6 MB**
   - 精确字节数由 `build.cmd` 收尾的 `verify-pe.ps1` 实测输出（docs/11 §S6-1）
-- **spike 探针**：**9 个**，产物 `spike386`(9) + `spike64`(9) —— Phase 0 五项（job/gui/hello/https/dlls）+ 后续四项（hta/oem2utf8/richedit/screenshot）
+- **spike 探针**：源码里 **9 个探针 + 1 个 launcher（`spike/hta/launcher/`）= 10 个 `package main`** ——
+  Phase 0 五项（job/gui/hello/https/dlls）+ 后续四项探针（hta/oem2utf8/richedit/screenshot）
+  - **构建产物仍是 9 个 / 架构**：`dist/spike386`(9) + `dist/spike64`(9)。launcher 不进 `build.cmd`。
   - ⚠️ **spike 产物不在 `build.cmd` 门禁范围内**（详见 AGENTS.md「已知陷阱」5）
 - **工具**：**17 个已注册**（`exec` / `run_script` / `help` / `selftest` / `ls` / `cat` / `grep` / `find` / `write` / `edit` / `append` / `http_get` / `https_get` / `ps` / `diskinfo` / `sysinfo` / `kill`）
   - **17 个工具，全部已接线**（`kill` 在 `P3-21` 恢复 M2 双层防护并接线）
