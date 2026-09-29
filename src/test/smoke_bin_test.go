@@ -73,9 +73,32 @@ func TestSmoke_SmithBinary(t *testing.T) {
 	if !strings.Contains(string(content), "boot start") {
 		t.Errorf("smith.log missing boot start marker:\n%s", content)
 	}
-	if !strings.Contains(string(content), "llm") {
-		t.Errorf("smith.log missing llm status line:\n%s", content)
+
+	// 【T4-5】原来断言 `strings.Contains(content, "llm")` —— 而空配置路径
+	// **恰好**打 `!! llm: 缺配置`，等于被一条错误日志满足，这条断言没有
+	// 验任何东西。
+	//
+	// 而"断言 `你 > ver` / `ver turn=`"（一度想改成的方向）**也不对**：
+	// smoke 在空 temp 目录跑，没有 smith.ini → llmClient == nil → runWorker
+	// 在 `if llm == nil { continue }` 直接跳过，**loop.Run 根本不会被调用**。
+	// 且全仓 grep `你 >` 0 命中 —— 那个标记根本不存在。
+	//
+	// 所以断言"如实反映当前无 LLM 的降级路径"三条，合起来证明：
+	// worker 起了 → loop 建好了 → 输入被消费并走完 no-gui 退出路径。
+	for _, marker := range []string{
+		"boot start",        // [2] 早期日志开了
+		"agent loop ready",  // worker 起动且 NewLoop 成功
+		"no-gui smoke done", // 完整走完退出路径
+	} {
+		if !strings.Contains(string(content), marker) {
+			t.Errorf("smith.log 缺少 %q：\n%s", marker, content)
+		}
 	}
+	// 反向：确认走的是"LLM 未配置"降级而不是别的分支
+	if !strings.Contains(string(content), "LLM 未配置") {
+		t.Errorf("smith.log 缺少 LLM 未配置标记（应确认输入被 worker 消费后走了降级分支）:\n%s", content)
+	}
+	// ⚠️ 不要断言 "tools=14" —— T3 已把它变成 17，且随工具增减漂移。
 }
 
 // copyFile 复制文件（简单实现，PE-agent 测试用）

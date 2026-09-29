@@ -94,8 +94,12 @@ type processBasicInformation struct {
 func snapshotProcs() (map[uint32]ProcessInfo, error) {
 	out := map[uint32]ProcessInfo{}
 	h, _, _ := pCreateToolhelp32Snapshot.Call(th32csSnapProcess, 0)
-	if h == 0 {
-		return out, fmt.Errorf("%w", ErrSnapshotCreate)
+	// ⚠️ 失败返回 INVALID_HANDLE_VALUE(0xFFFFFFFF)，**不是 0**（T4-1）。
+	// 只判 0 的话真失败会带着 0xFFFFFFFF 去调 Process32FirstW，最终报
+	// "Process32FirstW failed" —— 把「快照建不出来」误报成「枚举失败」，
+	// 排障方向直接跑偏（spike/job:231 两个都判了）。
+	if h == 0 || h == ^uintptr(0) {
+		return out, fmt.Errorf("%w: h=%#x", ErrSnapshotCreate, h)
 	}
 	defer pCloseHandle.Call(h)
 

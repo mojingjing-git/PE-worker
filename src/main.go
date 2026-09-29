@@ -94,6 +94,9 @@ func buildFatalMessage(code int, detail string) string {
 }
 
 // boot 是 main 的实际实现；这样可以用 os.Exit 不影响 defer 链。
+// workerIdle 在 worker 处理完一条输入后被关闭一次（--no-gui 冒烟用）。
+var workerIdle = make(chan struct{})
+
 // noGUIMode 记录是否无头模式（--no-gui）。fatalExit 与 runWorker 的 recover 据此决定
 // **要不要弹窗**（MessageBox 是模态阻塞调用，无人点 OK 会永挂 → smoke 测试必失败）。
 var noGUIMode bool
@@ -127,10 +130,11 @@ func boot() int {
 	if err != nil {
 		// 连日志都开不了：这是最早的一次失败，stderr 大概率没人看，
 		// 弹窗是用户唯一能看到的东西
-		fmt.Fprintf(os.Stderr, "FATAL: cannot open early log: %v\n", err)
-		win.FatalBox(0, fmt.Sprintf("无法打开日志文件：%v\n\n"+
-			"请确认 U 盘可写，或把 smith.exe 放到可写目录再运行。", err))
-		return 1
+		// ⚠️ 这里必须走 fatalExit 而不是裸调 win.FatalBox —— 后者没有
+		// noGUIMode 守卫，--no-gui 冒烟时三条日志路径全不可写就会弹一个
+		// 模态框把测试挂死（复审 MINOR）。
+		return fatalExit(1, "无法打开日志文件：%v\n\n"+
+			"请确认 U 盘可写，或把 smith.exe 放到可写目录再运行。", err)
 	}
 	fatalLogPath = logPath
 	_ = logx.Info("** ver boot start log=%s", logPath)
@@ -216,6 +220,19 @@ func boot() int {
 		_ = logx.Info("** ver llm ready base=%s model=%s", cfgInstance.LLM.Base, cfgInstance.LLM.Model)
 	}
 
+	// win 包不能 import logx（logx → win 会成环），所以日志 hook 由这里注入。
+	win.RichEditLogFunc = func(available bool) {
+		if available {
+			_ = logx.Info("** ver log control = RichEdit20W (think 段染色生效)")
+		} else {
+			_ = logx.Warn("!! riched20.dll 不可用，日志区降级为普通 EDIT —— " +
+				"<think> 段字号不变（该功能需要 RichEdit 专有的 EM_SETCHARFORMAT）")
+		}
+	}
+	win.KillLogFunc = func(format string, args ...any) {
+		_ = logx.Warn("!! kill fallback: "+format, args...)
+	}
+
 	// [5] worker 编排
 	//
 	// 设计：worker 是常驻 goroutine，**不**响应外层 ctx 退出。
@@ -226,7 +243,7 @@ func boot() int {
 
 	userInputCh := make(chan string, 8)
 	stopRunCh := make(chan struct{}, 1) // 缓冲 1：UI 线程连按 Stop 不丢信号
-	go runWorker(ctx, llmClient, cfgInstance, userInputCh, stopRunCh)
+	go runWorker(ctx, llmClient, cfgInstance, userInputCh, stopRunCh, workerIdle)
 
 	// [6] GUI 钩子
 	win.SetOnSend(func(text string) {
@@ -261,9 +278,15 @@ func boot() int {
 	if *noGUI {
 		_ = logx.Info("** ver no-gui mode; sending one test input then exit")
 		userInputCh <- "ver"
-		// 给 worker 最多 5s 跑完（agent loop 内部会自己完成；超时也无所谓，进程直接退）
-		time.Sleep(5 * time.Second)
-		_ = logx.Info("** ver no-gui smoke done; exit 0")
+		// 【T4-4】原来固定 time.Sleep(5s)：慢机 / 首次 TLS 握手不够用，
+		// 而正常情况又白等 5 秒（实测 smoke 恰好 5s 全耗在这）。
+		// 改成 done channel 驱动，5s 只作上限 —— 正常秒退，慢机也不误杀。
+		select {
+		case <-workerIdle:
+			_ = logx.Info("** ver no-gui smoke done; exit 0")
+		case <-time.After(5 * time.Second):
+			_ = logx.Warn("!! no-gui: worker 5s 未结束，仍退出（进程即将终止）")
+		}
 		return 0
 	}
 
@@ -286,7 +309,17 @@ func boot() int {
 
 	// [9] 通知 worker 退出（外层 ctx cancel → runWorker 主 select 命中 ctx.Done 退出）
 	cancel()
-	return winCode
+
+	// 【T1 MAJOR-1】win.Run() 自己的非零返回码也走 fatalExit 弹窗。
+	// gui.Run 会在三种情况返非零：RegisterClassEx 失败(1) / CreateWindowEx 失败(2)
+	// / GetMessage 出错(3) —— 而"GUI 建不出来"在 PE 里是真场景（无交互桌面 /
+	// 精简镜像缺 user32 资源）。原来这里只有一行 logx.Info，正是 T1 要消灭的
+	// "闪一下就没了、零线索"。
+	if winCode != 0 {
+		return fatalExit(winCode, "GUI 启动失败（退出码 %d）\n\n"+
+			"常见原因：精简镜像缺 user32 资源 / 无交互桌面（Session 0）。", winCode)
+	}
+	return 0
 }
 
 // runWorker 是单 goroutine 消费的 worker 循环。
@@ -296,7 +329,7 @@ func boot() int {
 // 单轮中断走 stopRunCh：OnStop 往里塞信号，loop.Run 拿到 ctx.Done() 自动返回。
 // 这样保证：按一次 Esc/Stop 只杀当前一轮，**worker 仍存活**，下条 user input
 // 进来还能继续。避免 C-2 描述的"Stop 后 worker 永久死亡"问题。
-func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan string, stopRun <-chan struct{}) {
+func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan string, stopRun <-chan struct{}, idle chan<- struct{}) {
 	// 【T1-3】worker 是裸 goroutine，之前**没有 recover** —— tools/agent 任一层
 	// panic 会直接崩掉整个进程（Windows 上 exit code 2），且崩之前没有任何日志
 	// 说明是哪一步炸的。退出码约定里的 "3 = worker 异常" 因此永远不可达。
@@ -306,8 +339,13 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 	//  2. **PostQuitMessage 唤醒消息循环** —— 这是让 win.Run() 返回的唯一途径
 	//     （boot 阻塞在消息循环里，不在任何 select 中，channel 传不出去）
 	//  3. atomic 标记退出码，由 boot 在 win.Run() 返回后读
+	panicked := true
 	defer func() {
-		if r := recover(); r != nil {
+		if panicked {
+			// Go 1.20 语义：panic(nil) 时 recover() **返回 nil**，但 panic 确实
+			// 被停住了。所以不能用 `r := recover(); r != nil` 判定 ——
+			// 那会让 panic(nil) 静默放过，GUI 变僵尸。用哨兵变量。
+			r := recover()
 			_ = logx.Error("!! worker panic: %v\n%s", r, debug.Stack())
 			atomic.StoreInt32(&workerPanicked, 1)
 			if !noGUIMode {
@@ -362,6 +400,16 @@ func runWorker(ctx context.Context, llm agent.Client, c *cfg.Config, in <-chan s
 		case <-ctx.Done():
 			return // 整体进程退出（GUI 关闭后 defer cancel 触发）
 		case userInput = <-in:
+		}
+
+		// 通知 --no-gui 冒烟：输入已被 worker 消费。
+		//
+		// ⚠️ 必须放在**这里**（取到输入后）而不是循环末尾 —— 因为 llm == nil
+		// 时会 `continue` 跳到下一轮，走不到末尾，冒烟就会一直等到 5s 超时
+		// （这个 bug 首版就踩了：smoke 红了 5.19s 才被发现）。
+		select {
+		case idle <- struct{}{}:
+		default:
 		}
 
 		// 【关键】排空上一轮遗留的 stop 信号。

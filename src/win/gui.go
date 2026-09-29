@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -139,6 +140,13 @@ func Run() int {
 	}
 	gHwnd = hwnd
 
+	// 【T1 竞态闭合】worker 可能在**建窗之前**就 panic 过（`go runWorker`
+	// 早于本函数）。那一刻无处投递 WM_QUIT，现在补上。
+	if WantQuit() {
+		// win 包不能 import logx（logx → win 会成环），日志由 main 侧兜。
+		return 3
+	}
+
 	// 主窗口就绪回调（main.go 在此设 logx.SetHWND，把日志投递到本窗口的 WM_LOG_LINE）。
 	// 必须在消息循环启动前调，否则 logx 拿不到 hwnd → 日志走 stderr 兜底 → GUI 看不到任何输出。
 	if OnMainWindowCreated != nil {
@@ -199,6 +207,44 @@ func Run() int {
 	return 0
 }
 
+// gLogRichEdit 报日志区当前是不是 RichEdit20W（决定 EM_SETCHARFORMAT 是否生效）。
+// 只被 UI 线程读写，无需加锁。
+var gLogRichEdit bool
+
+// RichEditLogFunc 是"riched20 不可用"告警的注入点（win 不能 import logx，
+// logx → win 会成环）。nil 时静默。
+var RichEditLogFunc func(available bool)
+
+func LogThinkBlockRichEditAvailable(available bool) {
+	if RichEditLogFunc != nil {
+		RichEditLogFunc(available)
+	}
+}
+
+// quitRequested 记录"已经有人请求退出，但当时窗口还没建起来"。
+//
+// 竞态的来源（复审 T1 MAJOR-2 实证）：`go runWorker(...)` 在 main.go 里
+// **早于** `win.Run()`，所以 worker 完全可能在**建窗之前**就 panic。
+// 那一刻 MainHwnd()==0 → PostMessage 无处可投 → boot 永久阻塞在
+// GetMessage 里 → 用户看到一个"完全正常但死了"的 GUI：能打字、能点 Send，
+// 日志只打 "user input buffer full, dropping"，agent 永不响应。
+//
+// 用标志位闭合：recover 时置位并**尝试**投递；Run() 里 gHwnd 赋值之后
+// 立刻检查该标志，若已置则直接返回 3。
+var quitRequested int32
+
+// RequestQuit 请求 GUI 退出。若主窗口已建好则立即投递 WM_QUIT；
+// 否则只置标志，等 Run() 建窗后自己检查。
+func RequestQuit() {
+	atomic.StoreInt32(&quitRequested, 1)
+	if h := MainHwnd(); h != 0 {
+		_, _ = PostMessageW(h, WM_QUIT, 0, 0)
+	}
+}
+
+// WantQuit 报是否已被请求退出（Run() 建窗后检查用）。
+func WantQuit() bool { return atomic.LoadInt32(&quitRequested) != 0 }
+
 // MainHwnd 返回主窗口句柄（0 = 尚未创建）。
 //
 // 供**其它 goroutine** 投递定向消息用 —— 例如 worker 崩溃时要把 WM_QUIT
@@ -208,10 +254,10 @@ func Run() int {
 // 而 worker 跑在另一个 goroutine / 另一个 OS 线程上，投过去 UI 线程收不到。
 // PostMessage(hwnd, WM_QUIT) 才是跨线程的做法。
 //
-// gHwnd 由 UI 线程在 Run() 里写、被这里读，属于 T0 修掉的那类"跨线程共享
-// 包级全局"。当前只在"主窗口已建好"之后才被读（worker 崩溃一定晚于建窗），
-// 且指针赋值在 x86/x64 上是单字原子写，实践中安全 —— 但这**是靠约定**。
-// 若将来要求严格保证，改用 atomic.Pointer 承载 gHwnd。
+// gHwnd 由 UI 线程在 Run() 里写、被 worker 读，属于 T0 修掉的那类"跨线程共享
+// 包级全局"。指针赋值在 x86/x64 上是单字原子写（探针核过汇编：386 MOVL /
+// amd64 MOVQ），**值不会撕裂**。但"读到时非 0"不保证 —— 所以 RequestQuit
+// 用 quitRequested 标志位兜住那个窗口期，见上。
 func MainHwnd() uintptr { return gHwnd }
 
 // OnSend / OnStop 是 main.go 设进来的回调，gui 线程调它们。
@@ -428,17 +474,53 @@ func onCreate(hwnd uintptr) {
 	hInst, _, _ := pGetModuleHandleW.Call(0)
 	stockFont, _, _ := pGetStockObject.Call(DEFAULT_GUI_FONT)
 
-	// 日志 EDIT (只读多行)
-	cls, _ := Ptr("EDIT")
-	defer Hold(cls)
-	gLog, _, _ = pCreateWindowExW.Call(
-		WS_EX_CLIENTEDGE,
-		uintptr(unsafe.Pointer(cls)),
-		0,
-		WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,
-		0, 0, 100, 100,
-		hwnd, uintptr(idLog), hInst, 0,
-	)
+	// 【T4-12】日志区优先用 RichEdit20W，而不是普通 EDIT。
+	//
+	// 原因：`EM_SETCHARFORMAT`（0x0444 = WM_USER+68，richedit.h:115）**是
+	// RichEdit 专有消息**，普通 EDIT 控件会直接忽略它并返回 0 —— 所以
+	// styleThinkBlocks 给 <think> 段缩字号**一直是 no-op**（实测 ret=0）。
+	// 常量本身是对的（已定点验证 0/100/200 三次读回一致），错的只是宿主控件。
+	//
+	// ⚠️ **不要**把 riched20.dll 变成硬依赖：精简 PE 可能缺它（依赖链较长，
+	// 例如 msls31.dll）。所以 LoadLibrary 失败就**显式降级回 EDIT**。
+	// 这是纯观感改进，不值得为它牺牲 PE 兼容性。
+	gLogRichEdit = false
+	richLib, _ := Ptr("riched20.dll")
+	defer Hold(richLib)
+	if hRich, _, _ := pLoadLibraryW.Call(uintptr(unsafe.Pointer(richLib))); hRich != 0 {
+		cls, _ := Ptr("RichEdit20W")
+		Hold(cls)
+		gLog, _, _ = pCreateWindowExW.Call(
+			WS_EX_CLIENTEDGE,
+			uintptr(unsafe.Pointer(cls)),
+			0,
+			WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,
+			0, 0, 100, 100,
+			hwnd, uintptr(idLog), hInst, 0,
+		)
+		if gLog != 0 {
+			gLogRichEdit = true
+			// 抬文本上限：RichEdit 默认 64KB，而普通 EDIT 可能更小。
+			// logMaxChars=60000 的截断逻辑依赖这个上限比 60000 大。
+			pSendMessageW.Call(gLog, EM_EXLIMITTEXT, 1<<20, 0)
+		}
+	}
+	if gLog == 0 {
+		// 降级路径：riched20.dll 不可用 → 普通 EDIT。
+		// think 段染色会静默失效，**必须在日志里说明**，否则又是一个
+		// "功能看起来在但没生效"的静默坑。
+		cls, _ := Ptr("EDIT")
+		Hold(cls)
+		gLog, _, _ = pCreateWindowExW.Call(
+			WS_EX_CLIENTEDGE,
+			uintptr(unsafe.Pointer(cls)),
+			0,
+			WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,
+			0, 0, 100, 100,
+			hwnd, uintptr(idLog), hInst, 0,
+		)
+		LogThinkBlockRichEditAvailable(false)
+	}
 	if gLog != 0 {
 		pSendMessageW.Call(gLog, WM_SETFONT, stockFont, 1)
 	}
@@ -555,6 +637,21 @@ func onCreate(hwnd uintptr) {
 func onSize(hwnd uintptr, w, h uint32) {
 	if gLog == 0 {
 		return
+	}
+	// 【T4-10】窗口宽度下限保护。
+	//
+	// 原来 `uintptr(int32(w)-130)` 之类**没有 clamp**：w < 130 时
+	// 386 上算出巨大正数（int32 负值转 uintptr 变大正数），
+	// amd64 上是符号扩展的负数（-130），**两架构行为不一致**。
+	// MoveWindow 会 clamp 但两次调用结果不同。spike/gui:246-268 的
+	// layout() 有整套 `if w < 320` 保护，产品代码把安全网丢了。
+	const minWinW = 320
+	const minWinH = 140
+	if w < minWinW {
+		w = minWinW
+	}
+	if h < minWinH {
+		h = minWinH
 	}
 	// 留 24 给 input, 24 给 status+3 按钮（多 4 像素让按钮好看）
 	logH := uintptr(int32(h) - 24 - 24)

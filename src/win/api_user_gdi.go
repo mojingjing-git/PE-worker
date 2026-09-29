@@ -22,6 +22,7 @@ var (
 
 var (
 	// 窗口 / 类
+	pLoadLibraryW        = user32.NewProc("LoadLibraryW")
 	pCreateWindowExW     = user32.NewProc("CreateWindowExW")
 	pDestroyWindow       = user32.NewProc("DestroyWindow")
 	pDefWindowProcW      = user32.NewProc("DefWindowProcW")

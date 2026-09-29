@@ -138,4 +138,20 @@ func TestJobSizeContract_PlatformDoc(t *testing.T) {
 	t.Logf("jobExtLimitInfoSizeX64 = %d (amd64 测 MSVC)", jobExtLimitInfoSizeX64)
 	t.Logf("jobLimitFlagsOffset = %d (两种架构一致)", jobLimitFlagsOffset)
 	t.Logf("当前 Go runtime: %s, GOARCH=windows/%s", runtime.Version(), runtime.GOARCH)
+
+	// 【T4-3】原来这个函数**只有 t.Logf，零断言** —— 而 §S1 铁律
+	//（含 64 位成员的手写 Win32 结构体有 386 对齐风险）恰恰是本项目最贵的一课
+	//（jobExtLimitInfo 的 108 vs 112 错位曾让 KILL_ON_JOB_CLOSE 静默失效）。
+	// 同族的 TestBuildJobExtLimitInfo_Sizes 才是真门禁，这里补齐同款断言。
+	if jobExtLimitInfoSizeX86 != 112 {
+		t.Errorf("jobExtLimitInfoSizeX86 = %d，期望 112（MSVC x86，8 字节对齐 LARGE_INTEGER）",
+			jobExtLimitInfoSizeX86)
+	}
+	if jobExtLimitInfoSizeX64 != 144 {
+		t.Errorf("jobExtLimitInfoSizeX64 = %d，期望 144（MSVC x64）", jobExtLimitInfoSizeX64)
+	}
+	if jobLimitFlagsOffset != 16 {
+		t.Errorf("jobLimitFlagsOffset = %d，期望 16（两个 LARGE_INTEGER 之后，两架构同值）",
+			jobLimitFlagsOffset)
+	}
 }

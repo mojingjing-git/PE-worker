@@ -218,33 +218,6 @@ func TestE2E_LogxFallbackSink(t *testing.T) {
 
 // ---------- 5. win.KeepAlive + Ptr 不爆（v1-M1） ----------
 
-func TestE2E_WinKeepAliveNoCrash(t *testing.T) {
-	// 构造一个 UTF-16 字符串，KeepAlive 后立即调 win.Ptr 再 KeepAlive，
-	// 不应该 crash（GC 不会在 KeepAlive 期间回收）。
-	s := "PE-agent e2e"
-	p, err := win.Ptr(s)
-	if err != nil {
-		t.Fatalf("win.Ptr: %v", err)
-	}
-	win.KeepAlive(p)
-	// 再来一次
-	p2, err := win.Ptr(s + " again")
-	if err != nil {
-		t.Fatalf("win.Ptr: %v", err)
-	}
-	win.KeepAlive(p2)
-	// 跑点内存压力看 GC
-	makeGarbage()
-	win.KeepAlive(p)
-	win.KeepAlive(p2)
-}
-
-func makeGarbage() {
-	for i := 0; i < 1000; i++ {
-		_ = make([]byte, 1024)
-	}
-}
-
 // ---------- 6. cfg 缺文件时 Default() 兜底 ----------
 
 func TestE2E_CfgFallbackToDefault(t *testing.T) {

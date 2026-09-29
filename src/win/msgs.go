@@ -77,6 +77,12 @@ const (
 	WM_PASTE         = 0x0302
 	WM_CLEAR         = 0x0303
 
+	// EM_EXLIMITTEXT (WM_USER+53, richedit.h:101) 抬文本上限。
+	// RichEdit20W 默认 64KB；日志区 logMaxChars=60000 的截断逻辑依赖上限 > 60000。
+	EM_EXLIMITTEXT = 0x0435
+	// EM_GETLIMITTEXT (WM_USER+37) —— 测试用，读回当前上限
+	EM_GETLIMITTEXT = 0x0437
+
 	// EM_SETCHARFORMAT wParam flags
 	SCF_SELECTION = 0x0001 // 染当前选区（EM_SETSEL 选中的）
 

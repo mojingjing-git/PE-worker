@@ -59,7 +59,10 @@ func TestTerminateProcess_NotCrash(t *testing.T) {
 
 // TestKillTreeSelfContained_InvalidPid 验证非法 pid 在入口校验就 abort。
 func TestKillTreeSelfContained_InvalidPid(t *testing.T) {
-	killed, errs := KillTreeSelfContained(0xFFFFFFFF, "")
+	// ⚠️ 原来这里传 expectName="" —— 而 M2 第 (a) 层（root 名字不符 → 整轮
+	// 中止）整个被 `expectName != ""` 短路掉，**M2(a) 在测试里从未真正执行**
+	// （T4-2）。这里用一个确定不存在的映像名，让 M2(a) 真正被走到。
+	killed, errs := KillTreeSelfContained(0xFFFFFFFF, "definitely-not-a-real-image.exe")
 	if killed != 0 {
 		t.Errorf("killed 应为 0, 实际 %d", killed)
 	}

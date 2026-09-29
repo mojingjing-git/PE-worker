@@ -28,6 +28,7 @@ package win
 
 import (
 	"fmt"
+	"os"
 	"unsafe"
 )
 
@@ -61,13 +62,27 @@ const (
 // flags 用上面的 MB_* 常量组合。text/caption 会被转成 UTF-16 并由
 // win.Ptr 持引用（M1 契约：传给 Win32 的 *uint16 必须在调用期间对 GC 可见）。
 func MessageBox(hwnd uintptr, text, caption string, flags uint) (int, error) {
-	lt, err := Ptr(text)
-	if err != nil {
-		return 0, fmt.Errorf("MessageBox: text: %w", err)
+	// ⚠️ Ptr("") 返 ErrEmpty、含 NUL 返 ErrNUL —— 直接透传会让"空 caption"
+	// 或"panic 值里带 \x00"变成**静默不弹窗**。Win32 本身接受空 caption，
+	// 所以这里用包级 emptyNUL 兜底（gui.go 已有同款）。
+	var lt, lc *uint16
+	if text == "" {
+		lt = &emptyNUL[0]
+	} else {
+		p, err := Ptr(text)
+		if err != nil {
+			return 0, fmt.Errorf("MessageBox: text 含 NUL 或非法: %w", err)
+		}
+		lt = p
 	}
-	lc, err := Ptr(caption)
-	if err != nil {
-		return 0, fmt.Errorf("MessageBox: caption: %w", err)
+	if caption == "" {
+		lc = &emptyNUL[0]
+	} else {
+		p, err := Ptr(caption)
+		if err != nil {
+			return 0, fmt.Errorf("MessageBox: caption 含 NUL 或非法: %w", err)
+		}
+		lc = p
 	}
 	// unsafe.Pointer → uintptr 内联在 .Call 实参里，Go 1.20 的
 	// syscall.Proc.Call 带 //go:uintptrespaces，转换期间保持存活。
@@ -95,8 +110,12 @@ func FatalBox(hwnd uintptr, text string) {
 		// 恰好是这个函数要消灭的那种"毫无线索地消失"。
 		// 所以这里兜住，让调用方自己的 stderr 兜底逻辑接手。
 		if r := recover(); r != nil {
-			_ = fmt.Sprintf("MessageBoxW panic (user32!MessageBoxW 不可用): %v", r)
+			// 弹框失败本身也是诊断信息，必须落地 —— 不能丢进 `_`。
+			// win 不能 import logx（会成环），所以写 stderr。
+			fmt.Fprintf(os.Stderr, "MessageBoxW panic（user32!MessageBoxW 不可用）: %v\n", r)
 		}
 	}()
-	_, _ = MessageBox(hwnd, text, "smith - 启动失败", MessageBoxFatalIcon)
+	if _, err := MessageBox(hwnd, text, "smith - 启动失败", MessageBoxFatalIcon); err != nil {
+		fmt.Fprintf(os.Stderr, "MessageBoxW 失败: %v\n", err)
+	}
 }
