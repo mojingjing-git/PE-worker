@@ -16,7 +16,7 @@ var allToolNames = []string{
 	"ps",       // P1-9b ps
 	"diskinfo", // P3-17 sys
 	"sysinfo",  // P3-17 sys
-	"kill",     // P3-17 sys（已注册，实现待 T2 接线）
+	"kill",     // P3-17 sys（P3-21 接线，走完整 M2 双层防护）
 }
 
 func TestRegister_All(t *testing.T) {

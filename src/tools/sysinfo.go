@@ -4,16 +4,6 @@
 // 底层 8 个函数（win/sysinfo.go）写好了、测过，却一个都没暴露成工具。
 // 本文件只做工具层包装：解析 args → 调 win/* → 渲染 LLM-friendly 纯文本。
 //
-// ── 依赖关系（务必先读）──────────────────────────────────────────────
-//
-// kill 工具**故意不实现**。它的正确实现必须复用 T2 批次在
-// win/proc.go 里做的 M2 双层 PID 复用防护（root 名字不符整轮中止 /
-// 非 root 节点查 InheritedFromUniqueProcessId），而 KillTreeSelfContained
-// 当前签名是 (root uint32, expectName string) (int, []string) —— **没有 error**，
-// T2 正在把它改成 (int, error)。本批次**不碰那个签名、不调它**，避免和 T2 冲突；
-// Run 只返回一个明确的"未接入"错误。工具仍然注册，是为了让工具数稳定
-// （17），T5 文档对齐时不用再改数字。
-//
 // ── 契约 ────────────────────────────────────────────────────────────
 //
 // L1：所有 win/* 调用都返 (T, error)，本文件**一处不漏**地判 err。
@@ -62,11 +52,6 @@ const (
 	archAMD64 uint16 = 9
 	archARM64 uint16 = 12
 )
-
-// errKillNotWired 是 kill 工具当前**唯一**的返回值。
-// 用 sentinel 而不是 fmt.Errorf 是为了让测试能 errors.Is 判，
-// 也让调用方（agent loop）能识别"这是未接线，不是运行失败"。
-var errKillNotWired = errors.New("kill: 待 win.KillTreeSelfContained 签名改造完成（T2 批次）后接入")
 
 // ── diskinfo ──────────────────────────────────────────────────────────
 
@@ -305,21 +290,17 @@ type killTool struct{}
 
 func (killTool) Name() string { return "kill" }
 func (killTool) Description() string {
-	return "按 PID 杀进程树（连同子进程）。args = \"<pid>\" 或 \"<pid> <期望进程名>\"。注意: 本批次**尚未接入**（依赖 T2 批次的 M2 进程名复核），调用会直接返回未接入错误。"
+	return `按 PID 杀整棵进程树（连同所有子孙进程）。args = "<pid>" 或 "<pid> <期望进程名>"。` +
+		`强烈建议带上期望进程名：会校验该 PID 当前确实是这个程序，PID 被系统复用给别人时拒绝误杀。` +
+		`高危操作，执行前请自行向用户确认。`
 }
 func (killTool) Risk() RiskLevel { return RiskDangerous }
 
-// Run 当前**故意不实现** —— 见文件头"依赖关系"段。
-//
-// 为什么不先接一个能跑的版本：kill 的全部价值在于 M2 双层 PID 复用防护。
-// 少了它，"杀 1234" 可能杀掉 PID 已被复用的**无辜进程** —— 在 PE 现场
-// 那等于数据事故。宁可诚实报"未接入"，也不要一个看起来能用但会杀错进程的 kill。
+// Run 调 win.KillTreeSelfContained 杀整棵树，M2 双层 PID 复用防护见 proc.go。
 func (killTool) Run(_ *Context, args string) (Result, error) {
-	// 【T2 收尾】T3 落地时这里刻意返回"未接入" —— 因为它要复用 M2 的
-	// 双层防护杀树，而 T2 尚未接线。现已可用，接上。
 	s := strings.TrimSpace(args)
 	if s == "" {
-		return Result{}, errors.New("kill: 需要 PID，形如 `kill 1234`")
+		return Result{}, errors.New("kill: 需要 PID，形如 `kill 1234` 或 `kill 1234 cmd.exe`")
 	}
 	fields := strings.Fields(s)
 	pid64, err := strconv.ParseUint(fields[0], 10, 32)
@@ -331,15 +312,50 @@ func (killTool) Run(_ *Context, args string) (Result, error) {
 		return Result{}, errors.New("kill: PID 0 无效")
 	}
 
-	// M2 第 (b) 层：非 root 节点用 InheritedFromUniqueProcessId 校验
-	// 父进程，防止 PID 复用导致误杀无关进程。expectName 由快照自己拿，
-	// 所以这里传空 —— M2 第 (a) 层（root 名字不符则整轮中止）由 KillTree 内部
-	// 配合快照时的名字校验完成，见 proc.go。
-	killed, errs := win.KillTreeSelfContained(pid, "")
-	if killed == 0 && len(errs) == 0 {
+	// M2 第 (a) 层：root 名字校验。KillTreeSelfContained 的三处名字校验
+	//（proc.go:222/241/255）全部带 `if expectName != ""` 前置条件，
+	// 传空串会让**整层防护短路**。因此这里必须给出一个非空的 expectName。
+	//
+	// 优先级：**用户传入的期望名 > 快照里查到的当前名**。
+	//   - 用户传了名 → 校验的是"这个 PID 现在是不是用户以为的那个进程"，
+	//     这才是 M2(a) 的本意：拦住"PID 已被复用给另一个程序"。
+	//   - 用户没传名 → 退回快照名，校验退化为"两次快照之间 PID 没被换成同名的
+	//     另一个进程"。这层较弱（同名复用拦不住），但比完全没有强，
+	//     且不引入"替用户编一个期望值"的假安全。
+	//
+	// 残余竞态（如实记录）：本进程可能在本快照与 KillTree 自己的首次快照之间
+	// 退出、PID 被复用。这是 M2 设计的既有取舍，不为此再加一次快照。
+	expectName := ""
+	if len(fields) > 1 {
+		expectName = fields[1]
+	}
+	if expectName == "" {
+		snap, err := win.SnapshotProcesses()
+		if err != nil {
+			return Result{}, fmt.Errorf("kill: 取进程快照失败: %w", err)
+		}
+		info, ok := snap[pid]
+		if !ok {
+			return Result{Text: fmt.Sprintf("未找到 pid=%d 的进程（可能已退出）", pid)}, nil
+		}
+		expectName = info.Name
+	}
+
+	// M2 第 (b) 层（非 root 节点）由 KillTreeSelfContained 内部用
+	// InheritedFromUniqueProcessId 校验，见 proc.go。
+	killed, errs := win.KillTreeSelfContained(pid, expectName)
+	if killed == 0 {
+		// killed==0 时**不能**说"已终止" —— 典型两种：被 M2(a) 以 PID 复用
+		// 为由拒杀，或 root 中途消失。如实说"未杀任何进程"并把 errs 原样
+		// 带给模型（errs 里就有 "PID reused, abort" 这类判定依据）。
+		if len(errs) == 0 {
+			return Result{Text: fmt.Sprintf(
+				"未杀到任何进程：pid=%d 可能已退出，或它不是根进程（若是子进程，"+
+					"请连它的父进程一起 kill）", pid)}, nil
+		}
 		return Result{Text: fmt.Sprintf(
-			"未杀到任何进程：pid=%d 可能已退出，或它不是根进程（若是子进程，"+
-				"请连它的父进程一起 kill）", pid)}, nil
+			"未杀任何进程：pid=%d 被安全策略拒绝或中途失败，未终止任何进程（%d 项失败：%v）",
+			pid, len(errs), errs)}, nil
 	}
 	msg := fmt.Sprintf("已终止 pid=%d 的进程树，共 %d 个进程", pid, killed)
 	if len(errs) > 0 {

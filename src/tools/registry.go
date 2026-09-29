@@ -8,9 +8,9 @@
 //   - meta  (2): help / selftest
 //   - sys   (4): ps / diskinfo / sysinfo / kill
 //
-// ⚠️ kill **已注册但未接入**（Run 直接返回"待 T2 接线"错误）—— 见 sysinfo.go
-// 文件头的依赖关系段。它的价值全在 M2 双层 PID 复用防护上，而那在 T2 批次
-// 才改完 win.KillTreeSelfContained 的签名。
+// ✅ kill **已接线**，走 win.KillTreeSelfContained 的完整 M2 双层 PID 复用防护：
+// root 名字校验 + 子节点 InheritedFromUniqueProcessId 校验。带期望进程名调用
+// `kill <pid> <name>` 时，PID 被系统复用给别人会**拒绝误杀**并如实报告。
 //
 // ⚠️ docs/02 §3 原计划里还有 screenshot / hash / netinfo / download ——
 // **至今未实现**。上表是当前代码的真实状态，不要照抄 PLAN 里的清单。
