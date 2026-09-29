@@ -32,12 +32,28 @@ import (
 	"testing"
 )
 
-// constsExempt 是**非 Win32**的包内常量，列出理由以免被当成漏网。
+// constsExempt 是**非 Win32 SDK**的包内常量，列出理由以免被当成漏网。
 // 新增常量若不在这张表里、也不在 TestWin32Constants 的断言表里 → 门禁红。
+//
+// ⚠️ 在这张表里 **≠ 没有断言**，只等于"不进 SDK 值表"这一件事。
+// 豁免与断言是两件独立的事，各自都不充分：
+//
+//	豁免（本表）    —— 告诉扫描器"这个常量不需要对照 SDK 头文件"，并写下理由
+//	值断言（consts_test.go）—— 真的把值/关系钉死，改错就红
+//
+// 4 个 WM_APP 消息号就是"两件都有"的情形：它们是本项目自己约定的编号，
+// 任何 SDK 头文件里都查不到，所以在本表豁免；同时值断言 + 互异性 +
+// WM_APP 区间断言在 consts_test.go 的 TestCustomMessageIDs。
+// 早期版本这里只有豁免、又没有值断言，扫描器又因只收 *ast.BasicLit 而
+// 看不见它们，于是形成"既无值断言、门禁也永远看不见"的永久无断言区 ——
+// 撞号时全绿，PE 上表现为"回车没反应"，无日志无崩溃。
 var constsExempt = map[string]string{
-	// 项目自定义的 WM_APP 消息（msgs.go:16-37），不是 Win32 常量
-	"WM_LOG_LINE": "项目自定义 WM_APP 消息", "WM_USER_INPUT": "项目自定义 WM_APP 消息",
-	"WM_AGENT_RESPONSE": "项目自定义 WM_APP 消息", "WM_USER_ABORT": "项目自定义 WM_APP 消息",
+	// 项目自定义的 WM_APP 消息（msgs.go:16-37）：本项目约定的消息号，
+	// 不是 SDK #define。值断言见 consts_test.go TestCustomMessageIDs。
+	"WM_LOG_LINE":       "项目自定义 WM_APP 消息（值断言见 TestCustomMessageIDs）",
+	"WM_USER_INPUT":     "项目自定义 WM_APP 消息（值断言见 TestCustomMessageIDs）",
+	"WM_AGENT_RESPONSE": "项目自定义 WM_APP 消息（值断言见 TestCustomMessageIDs）",
+	"WM_USER_ABORT":     "项目自定义 WM_APP 消息（值断言见 TestCustomMessageIDs）",
 	// GUI 控件 ID 与布局参数（gui.go / keydialog.go），纯项目内部编号
 	"idInput": "控件 ID", "idLog": "控件 ID", "idLogClear": "控件 ID", "idLogCopy": "控件 ID",
 	"idLogSave": "控件 ID", "idSend": "控件 ID", "idStatus": "控件 ID", "idStop": "控件 ID",
@@ -52,21 +68,28 @@ var constsExempt = map[string]string{
 	"jobLimitFlagsOffset": "布局事实，见 job_test.go",
 	// Go 侧哨兵（proc.go），不是 Win32 API 返回值
 	"errnoNone": "Go 侧哨兵",
-	// 组合表达式常量：msgs.go:156 `COLOR_BTNFACE_BRUSH = 15 + 1`。
-	// 扫描器只收 *ast.BasicLit（见下），组合表达式**不在 defined 里**，
-	// 若不豁免，反向 stale 检查会每次都报它 —— 门禁第一天就红。
-	"COLOR_BTNFACE_BRUSH": "组合表达式(15+1)，扫描器只收字面量",
+	// 组合表达式常量：msgs.go:163 `COLOR_BTNFACE_BRUSH = 15 + 1`。
+	// 它的值已在 win32ConstCases 里断言（16），豁免只是说明"不是照抄某个
+	// #define"；msgbox.go 的 MessageBoxFatalIcon 是同一类。
+	"COLOR_BTNFACE_BRUSH": "组合表达式(15+1)，不是照抄 #define；值见 win32ConstCases",
+	"MessageBoxFatalIcon": "组合表达式(MB_* 按位或)，各项值已在 win32ConstCases 断言",
 }
 
-// scanWin32Consts 扫本包非测试文件里所有「名字 = 字面量」形式的**包级**常量。
+// scanWin32Consts 扫本包非测试文件里所有**包级**常量，返回「名字 → file.go = 右值原文」。
 //
 // 口径（改动这个口径会让漏网常量重新溜过去，务必谨慎）：
 //   - 只看顶层 f.Decls 里的 GenDecl，函数内的局部 const 不算
 //     （局部 const 是实现细节，不是"需要跨文件核对的 SDK 值"）
-//   - 只收 *ast.BasicLit：组合表达式（`15 + 1`、`A | B`）**不**纳入机械比对，
-//     因为它们不是照抄某个 #define 就能判对错的
+//   - **不按右值形态过滤**：`0x8000 + 100`（组合表达式）、`15 + 1`、
+//     `MB_ICONHAND | MB_SETFOREGROUND`（引用别的常量）一律纳入。
+//     早期版本只收 *ast.BasicLit，于是 4 个项目自定义 WM_APP 消息号落在
+//     扫描器视野之外、又因在 constsExempt 里而免检，两头落空 ——
+//     详见 consts_test.go TestCustomMessageIDs 的注释。
 //   - 排除 _test.go：测试文件里的局部常量副本（job_test.go / proc_test.go 各自
 //     重声明 PROCESS_QUERY_INFORMATION）不属于产品代码
+//
+// 结论：本包的每个包级常量都必须"要么进 win32ConstCases、要么进 constsExempt"，
+// 没有第四种去处。
 func scanWin32Consts(t *testing.T) map[string]string {
 	t.Helper()
 	ents, err := os.ReadDir(".")
@@ -80,7 +103,12 @@ func scanWin32Consts(t *testing.T) map[string]string {
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(".", name), nil, 0)
+		path := filepath.Join(".", name)
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile %s: %v", name, err)
+		}
+		f, err := parser.ParseFile(fset, path, src, 0)
 		if err != nil {
 			t.Fatalf("ParseFile %s: %v", name, err)
 		}
@@ -93,13 +121,23 @@ func scanWin32Consts(t *testing.T) map[string]string {
 				vs := s.(*ast.ValueSpec)
 				for i, n := range vs.Names {
 					if i >= len(vs.Values) {
+						// 名字数多于右值数，**光看 AST 分不出是哪一种**：
+						//   const ( a = 1;   b ) → b 隐式重复上一行
+						//   const ( a, b = f() )  → b 是 f() 的第 2 个返回值
+						// 要分清得上 go/types 做类型检查，代价与收益不成比例，所以只如实说
+						// "没有独立右值"、不猜是哪一种。当前 win/ 里两种写法都没出现（也没有
+						// iota 链）；哪天真出现了，下面这行标签要跟着改，别让它变成新的误导。
+						out[n.Name] = name + " = （无独立右值）"
 						continue
 					}
-					bl, ok := vs.Values[i].(*ast.BasicLit)
-					if !ok {
-						continue // 非字面量（组合表达式）不纳入机械比对
+					v := vs.Values[i]
+					if bl, ok := v.(*ast.BasicLit); ok {
+						out[n.Name] = name + " = " + bl.Value
+						continue
 					}
-					out[n.Name] = name + ":" + bl.Value
+					lo := fset.Position(v.Pos()).Offset
+					hi := fset.Position(v.End()).Offset
+					out[n.Name] = name + " = " + strings.TrimSpace(string(src[lo:hi]))
 				}
 			}
 		}
@@ -123,14 +161,15 @@ func TestWin32ConstsNoUnasserted(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Errorf("以下常量已定义但既未在 TestWin32Constants 断言、也不在 constsExempt 豁免表：\n  %s\n"+
-			"  Win32 值请对照 SDK 头文件加进 consts_test.go 的 cases；"+
-			"非 Win32 的项目内部常量请加进 constsExempt 并写明理由。",
+			"  Win32 SDK 值请对照头文件加进 consts_test.go 的 win32ConstCases；"+
+			"非 Win32 的项目内部常量请在 consts_test.go 补上值断言，"+
+			"并在 constsExempt 里写明理由（豁免只表示'不进 SDK 值表'，不等于没有断言）。",
 			strings.Join(missing, "\n  "))
 	}
 	// 反向：断言表里有、包内却没有对应定义的符号也要报。
-	// 只报「在断言表、但既不是字面量常量、也不在豁免表」的符号 ——
-	// COLOR_BTNFACE_BRUSH 是 `15 + 1`（组合表达式，扫描器不收），
-	// 它已进 constsExempt 所以被豁免掉，不会天天报红。
+	// 豁免表里的符号跳过 —— 例如 COLOR_BTNFACE_BRUSH 是组合表达式，
+	// 若哪天它被从包内删掉，豁免会盖住这条 stale 报告，这是豁免的已知代价
+	//（豁免表每条都写了理由，理由失效时要连同删掉这一行）。
 	var stale []string
 	for name := range asserted {
 		if defined[name] == "" && constsExempt[name] == "" {

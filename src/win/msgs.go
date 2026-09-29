@@ -5,8 +5,9 @@
 //   - gui 的 WndProc 用 case WM_LOG_LINE: 处理投递
 //   - 双方都引用这个文件里的常量，**不**互相 import
 //
-// WM_APP (0x8000) 是用户自定义消息区的起点，0x8000-0xBFFF 共 1024 个槽。
-// 我们用 WM_APP+100 起，避免与系统消息冲突。
+// WM_APP (0x8000) 是系统保留给 application 消息的区间起点，0x8000-0xBFFF 共
+// 4096 个槽（0xBFFF-0x8000+1）。我们用 WM_APP+100 起，避免与系统消息冲突。
+// 区间上下界的断言见 consts_test.go TestCustomMessageIDs。
 
 package win
 

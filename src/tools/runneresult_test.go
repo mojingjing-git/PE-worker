@@ -155,6 +155,53 @@ func TestClassifyRunOutcome_ToolNameParameterized(t *testing.T) {
 	}
 }
 
+// TestClassifyRunOutcome_RunErrChainSurvives 钉死"错误链要活到工具最终返回的 err 上"。
+//
+// 背景（docs/13 复审 F3）：classifyRunOutcome 的 runErr 分支曾用 %v 拍平
+// runErr。%v 只做字符串化、不建立 unwrap 链，于是 mergeDrainErr 挂上去的
+// errPipeNotTaken 哨兵在最后一步断链 —— errors.Is 对交给模型的 err 是 false，
+// 哨兵等于白设，而 mergeDrainErr 的注释偏偏写着"可 errors.Is 追到"。
+// 正是"注释会骗人"的那一类。
+//
+// 现在 ③ 分支用 %w，本用例防止再有人改回 %v。**中止路径（① canceled /
+// ② timedOut）不覆盖**：那两个分支有意整个丢弃 runErr，属行为变更，
+// 已知缺口记在 classifyRunOutcome 的注释里，不在这里钉成断言。
+func TestClassifyRunOutcome_RunErrChainSurvives(t *testing.T) {
+	pipe := fmt.Errorf("取 stdout 管道读端: %w", errPipeNotTaken)
+
+	// 复现真实接线：exec.go / run_script.go 都是先 mergeDrainErr 再 classify。
+	runErr := mergeDrainErr(fmt.Errorf("exit status 1"), pipe)
+	if !errors.Is(runErr, errPipeNotTaken) {
+		t.Fatalf("前置条件不成立：mergeDrainErr 的返回值上应已能追到 errPipeNotTaken，实际 %v", runErr)
+	}
+
+	t.Run("runErr_无decErr", func(t *testing.T) {
+		_, err := classifyRunOutcome("exec", "o", nil, runErr, false, false, 60)
+		if err == nil {
+			t.Fatal("err = nil，want 非 nil")
+		}
+		if !errors.Is(err, errPipeNotTaken) {
+			t.Errorf("errors.Is(err, errPipeNotTaken) = false —— 错误链又断了（%%v 拍平？）：%v", err)
+		}
+		if !strings.Contains(err.Error(), "exit status 1") {
+			t.Errorf("主因应保留在消息里：%v", err)
+		}
+	})
+	t.Run("runErr_加_decErr", func(t *testing.T) {
+		// 两个 %w 分支都要活：runErr 与 decErr 各自可追。
+		_, err := classifyRunOutcome("exec", "o", errDecode, runErr, false, false, 60)
+		if err == nil {
+			t.Fatal("err = nil，want 非 nil")
+		}
+		if !errors.Is(err, errPipeNotTaken) {
+			t.Errorf("errors.Is(err, errPipeNotTaken) = false：%v", err)
+		}
+		if !errors.Is(err, errDecode) {
+			t.Errorf("errors.Is(err, errDecode) = false：%v", err)
+		}
+	})
+}
+
 // TestSynthRunErr 验退出码 / Wait 错 / Kill 错三者的合成优先级。
 func TestSynthRunErr(t *testing.T) {
 	killBoom := errors.New("kill boom")

@@ -28,6 +28,9 @@
 // 门禁是**两条腿**，缺一条就是自证：
 //   - 本文件 TestWin32Constants：断言表里的**值**对不对 SDK
 //   - consts_scan_test.go TestWin32ConstsNoUnasserted：包内的常量**有没有**进表
+//
+// 第三类（项目自定义编号，如 4 个 WM_APP 消息号）在 win32ConstCases 之外，
+// 由本文件底部的 TestCustomMessageIDs 单独钉 —— 见那里的注释。
 package win
 
 import "testing"
@@ -253,6 +256,69 @@ func TestWin32Constants(t *testing.T) {
 			t.Errorf("%s = 0x%X, want 0x%X  (权威: %s)",
 				c.name, c.got, c.want, c.src)
 		}
+	}
+}
+
+// TestCustomMessageIDs 钉死 4 个项目自定义 WM_APP 消息号（msgs.go:16-37）。
+//
+// 为什么它们**不在**上面那张 win32ConstCases 表里：那张表每一行的 src 都是
+// 某个头文件里的 #define，读者据此能自己去核对；而这 4 个是**本项目自己约定的
+// 编号**，任何 SDK 头文件里都查不到。混进那张表会让"对照 SDK 头文件"这个承诺
+// 失真 —— 那正是本轮整改反复在修的"注释声称 A、实际是 B"。所以单开本测试，
+// 并且必须在这里钉住它们，而不是靠 constsExempt 里的豁免蒙过去。
+//
+// ⚠️ 这 4 个曾经是"永久无断言区"（docs/13 复审 F3）：msgs.go 把它们写成
+// `0x8000 + 100` 这类组合表达式，而当时的扫描器只收 *ast.BasicLit，于是
+// 它们既不在扫描器的 defined 集合里、又没有一行值断言（src/test/e2e_test.go
+// 里的 `var _ = win.WM_LOG_LINE` 是引用，不是断言）。
+// 失败时序：有人把 WM_USER_INPUT 改成 `0x8000 + 102`（与 WM_AGENT_RESPONSE
+// 撞号）→ go test 全绿 → gui.go 把用户按 Enter 投递进 response 分支 →
+// worker 从不收输入、UI 不显示回复 → PE 上表现为"回车没反应"，无日志无崩溃。
+//
+// 三类断言缺一不可：
+//
+//	① 值断言    —— 0x8064~0x8067
+//	② 互异性    —— 4 个两两不相等（撞号是上面那个失败时序的直接成因）
+//	③ WM_APP 区间 —— 全部落在系统保留给 application 消息的 0x8000~0xBFFF；
+//	                 往下越界会与 0x0001~0x7FFF 的系统消息撞号，往上越界会与
+//	                 0xC000 起的 RegisterWindowMessage 私有注册区撞号
+//
+// 新增第 5 个自定义消息时，请把下面表里加一行 —— consts_scan_test.go 会因为
+// 它不在 constsExempt 里而报红，但那份红只是"要你表态"，真正的值/互异性
+// 断言在本文件。
+func TestCustomMessageIDs(t *testing.T) {
+	const (
+		wmAppLo = 0x8000 // winuser.h 的 WM_APP，系统保留给 application 消息的区间下界
+		wmAppHi = 0xBFFF // 同一区间的上界；0xC000 起是 RegisterWindowMessage 的私有注册区
+	)
+	cases := []struct {
+		name string
+		got  uint32
+		want uint32 // WM_APP+ 偏移
+	}{
+		{"WM_LOG_LINE", WM_LOG_LINE, wmAppLo + 100},
+		{"WM_USER_INPUT", WM_USER_INPUT, wmAppLo + 101},
+		{"WM_AGENT_RESPONSE", WM_AGENT_RESPONSE, wmAppLo + 102},
+		{"WM_USER_ABORT", WM_USER_ABORT, wmAppLo + 103},
+	}
+
+	// ② 互异性：撞号是静默失效的常见成因，必须单独断言。
+	seen := map[uint32]string{}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s = 0x%X, want 0x%X (WM_APP+%d)", c.name, c.got, c.want, c.want-wmAppLo)
+		}
+		if c.got < wmAppLo || c.got > wmAppHi {
+			t.Errorf("%s = 0x%X 落在 WM_APP 消息区 [0x%X, 0x%X] 之外："+
+				"往下会与系统消息、往上会与 RegisterWindowMessage 注册区撞号"+
+				"（gui.go / logx 都靠这个号投递）",
+				c.name, c.got, wmAppLo, wmAppHi)
+		}
+		if other, dup := seen[c.got]; dup {
+			t.Errorf("%s 与 %s 撞号（都是 0x%X）：gui.go 的 switch 会走错分支 —— "+
+				"投递/处理对不上时表现为'回车没反应'，无日志无崩溃", c.name, other, c.got)
+		}
+		seen[c.got] = c.name
 	}
 }
 

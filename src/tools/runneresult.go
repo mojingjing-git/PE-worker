@@ -37,7 +37,16 @@ var errPipeNotTaken = errors.New("管道读端取不到（句柄管理有 bug，
 // 正常的空输出，排查时完全看不出来（P3-20 正是这样潜伏下来的）。
 //
 // 命令本身已经失败时保留原 err 为前缀，把管道错用 %w 挂在后面：
-// 不掩盖主因，但 L5 要求它仍然进错误链（可 errors.Is 追到 errPipeNotTaken）。
+// 不掩盖主因，但 L5 要求它仍然进错误链 —— **本函数的返回值上**
+// errors.Is(err, errPipeNotTaken) 为真（output_limit_test.go 有断言）。
+//
+// ⚠️ 这条链要一路活到工具最终返回的 err 上，哨兵才算真的"可见"。
+// 中间有过一次断裂（docs/13 复审 F3）：classifyRunOutcome 的 runErr 分支
+// 曾用 %v 把本函数的返回值拍平，`%v` 不建立 unwrap 链，于是
+// errors.Is 对工具交给模型的 err 是 false，errPipeNotTaken 白设。
+// 现已改回 %w（该函数 ③ runErr 分支的两个 fmt.Errorf）。**仍然断链的是
+// canceled / timedOut 两个分支** —— 它们整个丢弃 runErr，本函数的结果连同
+// 哨兵一起消失，已知缺口记录在 classifyRunOutcome 的注释里。
 func mergeDrainErr(runErr, drainErr error) error {
 	if drainErr == nil {
 		return runErr
@@ -83,6 +92,15 @@ func firstErr(errs ...error) error {
 //	timedOut    ctx 超时
 //	canceled    ctx 被用户取消（Esc/Stop）
 //	timeoutSec  工具级超时秒数，只用于拼消息
+//
+// ⚠️ **已知缺口（有意保留，别当成已处理）**：① canceled 与 ② timedOut
+// 两个分支**整个丢弃 runErr**，因此并进 runErr 的管道哨兵 errPipeNotTaken
+// 在中止路径上完全不可见 —— 用户按了 Esc/Stop 或命令超时时，若句柄管理
+// 另有 bug，错误里只剩一句 "canceled by user" / "timeout after Ns"。
+// 补它属行为变更（会让"取消"的消息里多出 kill 后的退出码噪音，正是本函数
+// 上面那段排序说明要避免的），留待单独一批处理。
+// ③ runErr 分支已用 %w 保住错误链，所以非中止路径上哨兵可 errors.Is 追到
+// （runneresult_test.go 有断言钉住）。**只有中止路径是例外。**
 func classifyRunOutcome(toolName string, outStr string, decErr, runErr error,
 	timedOut, canceled bool, timeoutSec int) (Result, error) {
 
@@ -105,9 +123,21 @@ func classifyRunOutcome(toolName string, outStr string, decErr, runErr error,
 		// `echo hello & exit /b 1` 这种场景模型只看到 "exit status 1"
 		// 然后反复重试同一条命令直到 MaxTurns）。
 		if decErr != nil {
-			return Result{Text: outStr}, fmt.Errorf("%s: %v (decode output: %w)", toolName, runErr, decErr)
+			return Result{Text: outStr}, fmt.Errorf("%s: %w (decode output: %w)", toolName, runErr, decErr)
 		}
-		return Result{Text: outStr}, fmt.Errorf("%s: %v", toolName, runErr)
+		// %w 而不是 %v：%v 只是把 runErr 拍成字符串，错误链在这里断掉，
+		// mergeDrainErr 挂上去的 errPipeNotTaken 就再也 errors.Is 不到了
+		// （docs/13 复审 F3 修的就是这一处）。两个 %w 都合法（Go 1.20 起
+		// fmt.Errorf 支持多个 %w），errors.Is 会同时查这两条链。
+		//
+		// ⚠️ "改成 %w 不会改变错误消息"这个前提**只在操作数的动态类型是
+		// error、且不实现 fmt.Formatter 时成立** —— 真配上一个 Formatter，
+		// %w 会以 verb='w'、%v 以 verb='v' 去调 Format，输出可能分叉，
+		// 而 runneresult_test.go 的断言是精确字符串比对。
+		// 本仓库当前**零个** Format(*fmt.State) 实现（2026-09 复审 grep 过
+		// 全部 src/），所以成立 —— 但这是**当前事实、不是语言保证**。
+		// 将来若新增实现了 Formatter 的错误类型，先回来核对这里的字符串。
+		return Result{Text: outStr}, fmt.Errorf("%s: %w", toolName, runErr)
 	}
 	if decErr != nil {
 		return Result{Text: outStr}, fmt.Errorf("%s: decode output: %w", toolName, decErr)
