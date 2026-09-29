@@ -121,11 +121,17 @@ func splitPathContent(args string) (string, string, error) {
 	return strings.TrimSpace(parts[0]), parts[1], nil
 }
 
+// truncStr 截断到 n 字节，回退到 rune 边界后再补省略号（避免半个汉字）。
+//
+// 刻意调 limited_writer.trimPartialRune 而不是手工回退字节数：手工"回退 k 字节"
+// 不够 —— 残留片段本身可能仍是**合法**的短序列（"盘"=3 字节切在第 2 字节时
+// 留下 2 字节，正好是一个合法但错误的字符），检查全绿、豆腐块照样出现。
+// 理由详见 limited_writer.go 里 trimPartialRune 的注释。
 func truncStr(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return trimPartialRune(s[:n]) + "..."
 }
 
 func init() {

@@ -407,6 +407,11 @@ func argsHintNote(argsJSON, result string) string {
 	return badArgsHint + "\n工具原始输出：\n" + result
 }
 
+// truncate 按**字节**上限截断，尾部标 "...(truncated)"。
+//
+// ⚠️ 不与 loop.go 的 truncateRunes 合并（D3 判定保留）：那个是按 **rune 限额**
+// 切（限字符数，中文场景下 1 个汉字只算 1 份预算），这个是按**字节上限**切
+// （用于 API 字段长度这类硬约束）。限额单位不同，合并必错其一。
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

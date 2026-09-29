@@ -251,9 +251,13 @@ func logxVerdict(turn int, kind, stopReason string, histLen int) error {
 
 // truncateRunes 按 rune 截断（不是按字节）。
 //
-// 为什么需要它：loop.go 里的 truncate 是按字节切的，会把 UTF-8 多字节字符劈开，
-// 结果就是 tool result / 日志里出现乱码 —— 而这些文本是要喂回给 LLM 的，
-// 乱码会浪费 token 还可能让模型误解内容。中文 PE 场景下尤其明显。
+// 为什么需要它：按字节切会把 UTF-8 多字节字符劈开，结果就是 tool result /
+// 日志里出现乱码 —— 而这些文本是要喂回给 LLM 的，乱码会浪费 token 还可能
+// 让模型误解内容。中文 PE 场景下尤其明显。
+//
+// ⚠️ 不与 llm.go 的 truncate 合并（D3 判定保留）：truncate 是按**字节上限**切
+// （保留的是"不超过 N 字节"的硬约束），这个是按 **rune 限额**切
+// （保留的是"不超过 N 个字符"，报的是省略了几个字符）。限额单位不同。
 func truncateRunes(s string, max int) string {
 	if max <= 0 {
 		return ""

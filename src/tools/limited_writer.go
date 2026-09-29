@@ -171,5 +171,7 @@ func trimPartialRune(s string) string {
 }
 
 // 注：read.go 里另有一个 limitOutput(s) —— 那是给"已经成形的一段文本"用的
-// （os.ReadFile 的结果等）。本文件的 capWriter 是给**流式**的子进程输出用的，
+// （os.ReadFile 的结果等），本文件的 capWriter 是给**流式**的子进程输出用的，
 // 两者场景不同，都必要。不要重复定义。
+// 但**上限常量共用 maxToolOutputBytes 这一个**（D3 合并）：原来 read.go 另有一份
+// 同值的局部常量，名字还不一样，改一个忘另一个就会出现两份上限各行其是。

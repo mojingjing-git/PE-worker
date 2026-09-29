@@ -355,6 +355,37 @@ func TestCapWriter_ConcurrentWritesAndStringDontDeadlock(t *testing.T) {
 	}
 }
 
+// TestTruncStr_NoPartialUTF8 验 D3 改完的 truncStr：截断点回退到 rune 边界。
+//
+// 改之前 truncStr 是 `s[:n] + "..."`，直接按字节切 —— n=5 切 3 字节的
+// "磁盘清"会留下 "磁盘" + 半个 "清"（合法但错的 2 字节短序列），
+// 出现在 edit 的确认提示里就是豆腐块。
+func TestTruncStr_NoPartialUTF8(t *testing.T) {
+	got := truncStr("磁盘清理工具", 5)
+	body := strings.TrimSuffix(got, "...")
+	if !utf8.ValidString(body) {
+		t.Errorf("截断后正文不是合法 UTF-8（切在了字符中间）: %q", body)
+	}
+	if strings.ContainsRune(body, '�') {
+		t.Errorf("截断处出现乱码替换字符: %q", body)
+	}
+	// 5 字节 / 每字 3 字节 → 只能完整放 1 个字，第 2 个字必须整段丢弃。
+	if body != "磁" {
+		t.Errorf("期望保留 1 个完整汉字 \"磁\"，实际 %q", body)
+	}
+	if got != "磁..." {
+		t.Errorf("期望 \"磁...\"，实际 %q", got)
+	}
+	// 短于上限时原样返回，不加省略号。
+	if s := truncStr("磁盘", 40); s != "磁盘" {
+		t.Errorf("未超限应原样返回，实际 %q", s)
+	}
+	// 纯 ASCII 截断仍按字节切（不回退）。
+	if s := truncStr("abcdef", 3); s != "abc..." {
+		t.Errorf("ASCII 截断期望 \"abc...\"，实际 %q", s)
+	}
+}
+
 // TestMergeDrainErr 验 P3-30 复审 I2 的错误合并规则：
 // 管道排空失败不能被静默吞掉（那会让句柄 bug 伪装成"命令没输出"），
 // 但命令本身已失败时要保留原 err 为主因。

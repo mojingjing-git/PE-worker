@@ -40,11 +40,14 @@ import (
 )
 
 // 本批新增的 sentinel error（L1：所有可能失败的点都要有可 errors.Is 的错误）。
+//
+// ⚠️ TerminateProcess 的哨兵是 proc.go 的 ErrTerminateProc，**不在这里**
+// （D3 合并）：原来两份文案逐字相同却是两个不同的 error 值，
+// errors.Is 互不匹配 —— 同一类失败在调用方眼里成了"两件事"。
 var (
 	ErrCreatePipe         = errors.New("win: CreatePipe failed")
 	ErrResumeThread       = errors.New("win: ResumeThread failed")
 	ErrGetExitCodeProcess = errors.New("win: GetExitCodeProcess failed")
-	ErrTerminateProcess   = errors.New("win: TerminateProcess failed")
 )
 
 // KillLogFunc 是降级链日志的注入点。
@@ -294,6 +297,9 @@ func StartJobCmd(spec StartJobSpec) (*JobCmd, error) {
 	if err := jc.attachToJob(); err != nil {
 		// 绑不上 job：先杀掉刚创建的（还 SUSPENDED，没跑过）再返回错误，
 		// 不能留一个挂起的孤儿进程。
+		// 这里刻意**裸调** pTerminateProcess 而不是 TerminateProcess：
+		// 真正的失败原因是 attachToJob 的 err，终止失败无处可报（J1 的
+		// 启动期清理路径，返回值只有一个），报出来只会盖掉根因。
 		pTerminateProcess.Call(jc.hProc, 1)
 		pCloseHandle.Call(jc.hProc)
 		pCloseHandle.Call(jc.stdoutRd)
@@ -547,25 +553,26 @@ func (j *JobCmd) Kill() error {
 	}
 
 	// ③ 最后兜底：只杀直接子进程
-	if err := terminateProcessDirect(j.hProc); err != nil {
-		logKillFallback("③ 直接 TerminateProcess 也失败: %v", err)
+	// 合并说明（D3）：原先这里调本文件的 terminateProcessDirect，与 proc.go 的
+	// TerminateProcess 是同一个 pTerminateProcess.Call 包了两遍，现统一调后者。
+	// 错误信息量**不减**：原 terminateProcessDirect 报句柄、TerminateProcess
+	// 报 errno，这里用 %w 把句柄补在 errno 之外，errors.Is 仍匹配
+	// ErrTerminateProc。
+	var err3 error
+	if j.hProc == 0 {
+		err3 = errors.New("JobCmd.Kill ③: hProc == 0")
+	} else if e := TerminateProcess(j.hProc, 1); e != nil {
+		err3 = fmt.Errorf("%w: pid handle=%d", e, j.hProc)
+	}
+	if err3 != nil {
+		logKillFallback("③ 直接 TerminateProcess 也失败: %v", err3)
 		if firstErr == nil {
-			firstErr = err
+			firstErr = err3
 		}
 	} else {
 		logKillFallback("③ 直接 TerminateProcess 成功（仅直接子进程）")
 	}
 	return firstErr
-}
-
-func terminateProcessDirect(hProc uintptr) error {
-	if hProc == 0 {
-		return errors.New("terminateProcessDirect: hProc == 0")
-	}
-	if r, _, _ := pTerminateProcess.Call(hProc, 1); r == 0 {
-		return fmt.Errorf("%w: pid handle=%d", ErrTerminateProcess, hProc)
-	}
-	return nil
 }
 
 // Close 释放全部句柄。

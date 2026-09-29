@@ -115,7 +115,7 @@ func (grepTool) Run(ctx *Context, args string) (Result, error) {
 				// 按整字节判 UTF-8 有效性会误判并把正常行转花。
 				fmt.Fprintf(&sb, "%s:%d:%s\n", p, line, txt)
 			}
-			if sb.Len() > readOutputCap {
+			if sb.Len() > maxToolOutputBytes {
 				return filepath.SkipAll
 			}
 		}
@@ -154,7 +154,7 @@ func (findTool) Run(ctx *Context, args string) (Result, error) {
 		if matchName(pattern, d.Name(), p, root) {
 			fmt.Fprintln(&sb, p)
 		}
-		if sb.Len() > readOutputCap {
+		if sb.Len() > maxToolOutputBytes {
 			return filepath.SkipAll
 		}
 		return nil
@@ -238,28 +238,19 @@ func decodeText(raw []byte) string {
 }
 
 // limitOutput 截断超长输出，尾部标明省略字节数 —— 让模型知道还有内容没看，
-// 而不是假装看全了（docs/11 S3 同款策略）。
-//
-// ⚠️ 这里原本写着"exec 侧那份常量在 exec.go，不在此处定义以免重名"——
-// **该说法已失效**（P3-28 核实全项目无此说法的依据）：那份常量
-// `maxToolOutputBytes` 在 **limited_writer.go**，不在 exec.go；而下面这个
-// `maxBytes`（512*1024，与 maxToolOutputBytes 同值）是**重复定义**。
-// 合并二者属 docs/13 Task D3 的活，刻意不在此动，以免与 D3 打架。
+// 而不是假装看全了（docs/11 S3 同款策略）。上限用 maxToolOutputBytes
+// （limited_writer.go），与 ls/grep/find 的停写阈值同源。
 func limitOutput(s string) string {
-	const maxBytes = 512 * 1024
-	if len(s) <= maxBytes {
+	if len(s) <= maxToolOutputBytes {
 		return s
 	}
-	cut := maxBytes
+	cut := maxToolOutputBytes
 	// 回退到 rune 边界，避免把一个 UTF-8 多字节字符劈成乱码。
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
 	return s[:cut] + fmt.Sprintf("\n...[truncated %d bytes]", len(s)-cut)
 }
-
-// readOutputCap 是单次 ls/grep/find 累积输出的停写阈值（同 512KB，见 limitOutput）。
-const readOutputCap = 512 * 1024
 
 func init() {
 	Register(lsTool{})

@@ -160,6 +160,10 @@ func OpenProcess(pid uint32) (uintptr, error) {
 }
 
 // TerminateProcess 包装 kernel32!TerminateProcess（exitCode 传给进程）。
+//
+// 全包**唯一**的 TerminateProcess 包装（D3 合并）：jobexec.go 的
+// terminateProcessDirect 曾是同一个 pTerminateProcess.Call 的第二份包装，
+// 已删 —— 失败时返回的错 %w 链到 ErrTerminateProc，调用方 errors.Is 一致。
 func TerminateProcess(hProcess uintptr, exitCode uint32) error {
 	r, _, e := pTerminateProcess.Call(hProcess, uintptr(exitCode))
 	if r == 0 {
