@@ -18,7 +18,11 @@
 //	systemPool 标记，Go 会优先走 CryptoAPI，追加进去的证书可能根本不被采用。
 package assets
 
-import _ "embed"
+import (
+	"crypto/x509"
+	_ "embed"
+	"errors"
+)
 
 //go:embed cacert.pem
 var CACertPEM []byte
@@ -36,3 +40,19 @@ var CACertPEM []byte
 //   - 抓取来源：https://curl.se/ca/cacert.pem
 const CACertPEMSnapshot = "2026-08-13"
 
+// NewCertPool 构造只含内置 Mozilla CA bundle 的 x509.CertPool。
+//
+// 为什么**不**在失败时退回 RootCAs=nil（系统根库）：本项目跑在精简 PE 镜像里，
+// 系统根证书库要么不存在、要么残缺，正是 TLS 失败的主因。解析失败必须返 error，
+// 让上层如实报"内置 CA bundle 损坏"，而不是退化成一个更隐蔽的失败。
+//
+// 为什么要抽成共用函数：agent 的 newTransport 和 tools 的 defaultTLSConfig
+// 之前各写一遍，失败策略还相反（一个返 error，一个 log 后退回系统根库）。
+// 收敛到这一处后，策略只有一个实现。
+func NewCertPool() (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(CACertPEM) {
+		return nil, errors.New("assets: 内置 CA bundle 解析失败（cacert.pem 损坏或为空）")
+	}
+	return pool, nil
+}

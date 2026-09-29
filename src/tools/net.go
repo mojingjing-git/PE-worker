@@ -7,7 +7,6 @@ package tools
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"peagent/assets"
-	"peagent/src/logx"
 )
 
 const httpTimeoutSec = 30
@@ -41,7 +39,11 @@ func (httpsGetTool) Description() string {
 func (httpsGetTool) Risk() RiskLevel { return RiskRead }
 
 func (httpsGetTool) Run(ctx *Context, args string) (Result, error) {
-	return doGet(ctx, args, defaultTLSConfig(), "peagent/0.1 (https_get)")
+	tlsCfg, err := defaultTLSConfig()
+	if err != nil {
+		return Result{}, err
+	}
+	return doGet(ctx, args, tlsCfg, "peagent/0.1 (https_get)")
 }
 
 // doGet 是 httpGet + httpsGet 共用。tlsCfg nil = 走系统库 (http_get);
@@ -84,7 +86,7 @@ func doGet(_ *Context, url string, tlsCfg *tls.Config, userAgent string) (Result
 	return Result{Text: string(body)}, nil
 }
 
-// defaultTLSConfig 返带 assets.CACertPEM 的 TLS config；sync.Once 保证只解析一次。
+// defaultTLSConfig 返带内置 CA bundle 的 TLS config；sync.Once 保证只解析一次。
 //
 // 之前是无锁懒加载闭包：并发首次调用会把 188KB 的 PEM 重复解析 N 次
 // （PE 里内存盘小，这一下就是几 MB 的垃圾）。
@@ -98,20 +100,23 @@ func doGet(_ *Context, url string, tlsCfg *tls.Config, userAgent string) (Result
 var (
 	defaultTLSOnce sync.Once
 	defaultTLSCfg  *tls.Config
+	defaultTLSErr  error
 )
 
-func defaultTLSConfig() *tls.Config {
+func defaultTLSConfig() (*tls.Config, error) {
 	defaultTLSOnce.Do(func() {
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(assets.CACertPEM) {
-			_ = logx.Error("tools: embedded CA bundle 解析失败，退回系统根证书库" +
-				"（PE 精简镜像里握手大概率失败：x509: certificate signed by unknown authority）")
-			defaultTLSCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+		pool, err := assets.NewCertPool()
+		if err != nil {
+			// 绝不退回 RootCAs=nil：nil 会让 Go 改用系统根证书库，
+			// 那正是精简 PE 镜像里必失败的路径（见上）。
+			defaultTLSErr = fmt.Errorf("net: %w", err) // L5 透传
 			return
 		}
 		defaultTLSCfg = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	})
-	return defaultTLSCfg
+	// Once 缓存的是**错误本身**：解析失败是确定性的（bundled PEM 坏 = 永远坏），
+	// 缓存后每次调用都是 O(1)，且失败态不会因为"第一次失败、第二次成功"而不一致。
+	return defaultTLSCfg, defaultTLSErr
 }
 
 func init() {

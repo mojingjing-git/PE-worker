@@ -29,7 +29,6 @@ package agent
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -195,11 +194,11 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 // max(timeoutS, defaultResponseHeaderTimeout)：整个请求预算比等响应头的
 // 预算大是合理的（响应体下载也要时间）。
 func newTransport(timeoutS int) (*http.Transport, error) {
-	pool := x509.NewCertPool()
-	// AppendCertsFromPEM 返 false 表示**一张都没解析成功**。
-	// 不检查的话拿着空 pool 握手，会"看起来像根库问题"，其实是构建问题。
-	if !pool.AppendCertsFromPEM(assets.CACertPEM) {
-		return nil, errors.New("llm: embedded CA bundle failed to parse (empty pool)")
+	// 解析失败返 error（不退回 RootCAs=nil / 系统根库）：那是 PE 里必失败的路径，
+	// 详见 assets.NewCertPool 的注释。
+	pool, err := assets.NewCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("llm: %w", err)
 	}
 	if timeoutS <= 0 {
 		timeoutS = 120
