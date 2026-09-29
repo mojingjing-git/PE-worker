@@ -166,11 +166,16 @@ F:\AI\01_项目\PE-agent\
 ├── AGENTS.md               # 本文件
 ├── README.md               # GitHub 入口
 ├── CHANGELOG.md            # 变更日志
+├── LICENSE                 # MIT（README 徽章 + 许可节指向它）
 ├── go.mod                  # module peagent, go 1.20
 ├── build.cmd               # 一键 vet + gofmt + build + PE 校验 + test（默认/clean/test）
 ├── verify-pe.ps1           # PE 头校验（Subsystem / 导入表 / 体积）
+├── run.ps1                 # 开发用启动器（锁 Go 1.20.14，编到 .tmp/ 再起 GUI / -NoGui 烟雾测试）
 ├── smith.ini.example       # 配置文件模板（字段表见 PLAN §0.6 B6）
+├── .gitattributes          # 行尾强制：*.cmd/*.bat/*.ps1 = CRLF（陷阱 6 的 git 侧兜底）
+├── .gitignore              # dist/ 逐个放行 + 隐私/临时文件排除（细则见 §7）
 ├── docs/                   # 12 篇专项设计（06 编号空缺；11/12/13 = 整改计划）
+│   ├── 01-05, 07-10        #   各专项设计（逐篇文件名见 README 的同名树）
 │   ├── 11-审计整改计划.md    #   S0~S8 的整改前后对照与实施记录
 │   ├── 12-收尾与功能补齐计划.md #   T0~T5 的批次定义与实施记录（T0–T4 已落地）
 │   └── 13-死代码与过时规则整改计划.md # A~F 批：死代码清理 + 过时断言订正
@@ -180,7 +185,8 @@ F:\AI\01_项目\PE-agent\
 │   ├── hello/              #   提交限制自检（输出全部 ASCII）
 │   ├── https/              #   嵌入 CA bundle + TLS 1.2 + 4 步对照
 │   ├── dlls/               #   可加载 DLL 清单
-│   ├── hta/                #   HTA 前端探针（+ launcher/ 子目录：CreateProcessW 拉 mshta）
+│   ├── hta/                #   HTA 前端探针（app.hta = 运行时模板，读 exe 同目录）
+│   │   └── launcher/       #     CreateProcessW 拉 mshta（不进 dist/spike{386,64}）
 │   ├── oem2utf8/           #   OEM → UTF-8 转换探针
 │   ├── richedit/           #   RichEdit 控件探针
 │   └── screenshot/         #   抓屏探针
@@ -192,7 +198,7 @@ F:\AI\01_项目\PE-agent\
 │   ├── tinker.c            #   C 骨架参考（不编进 exe，docs/03 里引用设计）
 │   ├── win/                #   Win32 互操作（最易踩雷）：api_kernel / api_user_gdi / wstr /
 │   │                       #   gui / keydialog / msgs / job / jobexec / proc / sysinfo / oem /
-│   │                       #   msgbox + consts_test
+│   │                       #   msgbox + consts_test/consts_scan_test（C1 门禁那两个）
 │   ├── agent/              #   LLM 客户端 + 适配层 + loop + history + verdict
 │   ├── tools/              #   17 工具注册表 + 业务实现 + limited_writer（输出硬上限）
 │   ├── cfg/                #   INI 解析
@@ -201,8 +207,8 @@ F:\AI\01_项目\PE-agent\
 └── dist/                   # 产物（部分入仓）
     ├── smith.exe             #   Phase 1 主产物（386，约 5.5~6 MB）
     ├── smith64.exe           #   Phase 1 主产物（amd64，约 5.5~6 MB）
-    ├── spike386/*.exe      #   9 个 spike 386 产物（拷 U 盘验 PE）
-    └── spike64/*.exe       #   9 个 spike amd64 产物
+    ├── spike386/            #   9 个 spike 386 exe + app.hta（拷 U 盘验 PE）
+    └── spike64/             #   同上 amd64（9 个 exe + app.hta；launcher 不构建）
 ```
 
 > 产物精确体积由 `build.cmd` 收尾的 `verify-pe.ps1` 实测输出，**不要在文档里手写字节数**。

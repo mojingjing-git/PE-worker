@@ -358,15 +358,21 @@ P0-1~P0-6 的 PE 侧验证。详见 `docs/07` §5、`docs/08`。
 > （`win/api.go` / `win/dpi.go` / `tools/file.go` / `tools/sys.go` / `tools/vision.go`）
 > **从未存在** —— 见 docs/11 §S8-6。
 > 标 **[规划中，未实现]** 的条目是 Phase 4 / PLAN §3 的目标形态，**代码里没有**。
+> `src/` 下列的是**实现文件 + C1 门禁那两个测试文件**；其余 `*_test.go` 系统性不列。
+> 本节目录树已按 `git ls-files` 逐条核对（docs/13 Task E4，2026-09-30）。
 
 ```
 PE-agent/
 ├─ PLAN.md                      ← 本文
 ├─ AGENTS.md / README.md / CHANGELOG.md
+├─ LICENSE                      MIT
 ├─ go.mod                       (module peagent, go 1.20)
 ├─ build.cmd                    ← 锁死 Go 1.20 + 版本断言 + vet/gofmt/PE校验/test 门禁
 ├─ verify-pe.ps1                PE 头校验（Subsystem / 导入表 / 体积）
+├─ run.ps1                      开发用启动器（锁 Go 1.20.14，编到 .tmp/ 再起 GUI / -NoGui 烟雾测试）
 ├─ smith.ini.example            配置模板（权威字段表见 §0.6 B6）
+├─ .gitattributes               行尾强制：*.cmd/*.bat/*.ps1 = CRLF（陷阱 6 的 git 侧兜底）
+├─ .gitignore                   dist/ 逐个放行 + 隐私/临时文件排除（细则见 AGENTS.md §7）
 ├─ docs/01..05,07..13           专项设计（06 编号空缺）；11 = 审计整改计划 S0~S8，12 = 收尾与功能补齐 T0~T5，13 = 死代码与过时规则整改
 ├─ spike/                       Phase 0 + 前端探针（**只读，可读不可 import**）：9 个探针 + 1 个 launcher = 10 个 `package main`
 │  ├─ hello/main.go             P0-1 能不能跑 + P0-6 内存（`-alloc N`，带余量刹车）
@@ -374,11 +380,12 @@ PE-agent/
 │  ├─ gui/main.go               P0-3 纯 Go 建 Win32 窗口（`-secs N` 自动关）
 │  ├─ https/main.go             P0-4 五步 TLS 对照（TCP / 跳过校验 / 系统库 / 捆绑 bundle / 完整 GET）
 │  ├─ job/main.go               P0-5 Job Object + 自实现杀树（`-diag` 打结构体布局）
-│  ├─ hta/                      HTA 前端探针（含 SPIKE_REPORT.md）+ hta/launcher/（CreateProcessW 拉 mshta）
+│  ├─ hta/                      HTA 前端探针（app.hta = 运行时模板，读 exe 同目录）
+│  │  └─ launcher/             CreateProcessW 拉 mshta（绕开沙箱 LOLBin 检测）
 │  ├─ oem2utf8/                 OEM → UTF-8 转换探针
 │  ├─ richedit/                 RichEdit 控件探针（think 染色的可行性依据）
 │  └─ screenshot/               抓屏探针
-│     （以上 9 个探针进 dist/spike{386,64}；launcher 不构建）
+│     （以上 9 个探针进 dist/spike{386,64}，hta.exe 旁另带一份 app.hta；launcher 不构建）
 ├─ assets/
 │  ├─ assets.go                 `//go:embed cacert.pem`
 │  └─ cacert.pem                Mozilla CA bundle（更新见 assets.go 注释）
@@ -398,7 +405,8 @@ PE-agent/
 │  │  ├─ sysinfo.go             内存/OS/磁盘/主机名等（L1：全部 `(T, error)`）
 │  │  ├─ oem.go                 OEM → UTF-8（exec / run_script / read 调用）
 │  │  ├─ msgbox.go              **MessageBoxW 封装**（T1 落地：PE 里唯一可靠的可读通道）
-│  │  └─ consts_test.go         Win32 常量门禁（68 条，对照 SDK 头文件）
+│  │  ├─ consts_test.go         C1 门禁的断言部分（68 条，对照 SDK 头文件）
+│  │  └─ consts_scan_test.go    C1 门禁的 AST 真 diff（与包内 const 声明比对，docs/13 B1）
 │  ├─ agent/
 │  │  ├─ agent.go               公共类型
 │  │  ├─ llm.go                 客户端 + CheckRedirect / 重试 / 超时策略
@@ -420,11 +428,12 @@ PE-agent/
 │  │  ├─ meta.go                help / selftest
 │  │  ├─ sysinfo.go             diskinfo / sysinfo / kill（均已接线）
 │  │  ├─ limited_writer.go      工具输出硬上限 512KB + 截断标记
+│  │  ├─ runneresult.go         exec / run_script 共用的结果分类阶梯（超时 vs 取消，单一实现）
 │  │  └─ vision.go              **[规划中，未实现]** screenshot + 图片分支 + attach_image
 │  ├─ cfg/ini.go                INI 解析（自己写）+ Save 合并模式
 │  ├─ logx/log.go               日志 → PostMessage 投递到 UI 线程
 │  └─ test/                     e2e（loop+tools+cfg 串通，含 17 工具注册断言）+ smoke_bin（跑 dist/smith.exe）
-└─ dist/                        构建产物（smith.exe / smith64.exe / spike{386,64}）
+└─ dist/                        构建产物（smith.exe / smith64.exe / spike{386,64}/*.exe + app.hta）
 ```
 
 ### 与 §3 阶段计划的对应（哪些还没做）

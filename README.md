@@ -156,10 +156,14 @@ peagent/
 ├── AGENTS.md              # AI agent 工作约定
 ├── README.md              # 本文件
 ├── CHANGELOG.md           # 变更日志
+├── LICENSE                # MIT
 ├── go.mod                 # module peagent, go 1.20
 ├── build.cmd              # 一键 vet + gofmt + build + PE 校验 + test
 ├── verify-pe.ps1          # PE 头校验（Subsystem / 导入表 / 体积）
+├── run.ps1                # 开发用启动器（锁 Go 1.20.14，编到 .tmp/ 再起 GUI / -NoGui 烟雾测试）
 ├── smith.ini.example      # 配置文件模板
+├── .gitattributes         # 行尾强制：*.cmd/*.bat/*.ps1 = CRLF
+├── .gitignore             # dist/ 逐个放行 + 隐私/临时文件排除（细则见 AGENTS.md §7）
 ├── docs/                  # 12 篇专项设计（06 编号空缺；11 = 审计整改，12 = 收尾与功能补齐，13 = 死代码与过时规则整改）
 │   ├── 01-WinPE-agent-开源项目调研.md
 │   ├── 02-工具集设计建议.md
@@ -175,7 +179,7 @@ peagent/
 │   └── 13-死代码与过时规则整改计划.md # A~F 批：死代码清理 + 过时断言订正
 ├── spike/                 # Phase 0 预研 + 前端探针（只读，9 个探针 + 1 个 launcher = 10 个 main）
 │   ├── job/ gui/ hello/ https/ dlls/   # Phase 0 五项
-│   ├── hta/ oem2utf8/ richedit/ screenshot/   # 后续新增四项探针
+│   ├── hta/ oem2utf8/ richedit/ screenshot/   # 后续新增四项探针（hta/ 另有 app.hta 运行时模板）
 │   └── hta/launcher/       # CreateProcessW 拉 mshta（绕开沙箱 LOLBin 检测，不进 dist/）
 ├── assets/                # 嵌入资源
 │   ├── assets.go
@@ -185,14 +189,14 @@ peagent/
 │   ├── tinker.c           # C 实现参考（不编进 exe）
 │   ├── win/               # Win32 互操作（api_kernel / api_user_gdi / wstr / gui / keydialog / msgs / job / jobexec / proc / sysinfo / oem / msgbox）
 │   ├── agent/             # LLM 客户端 + 适配层 + loop + history + verdict
-│   ├── tools/             # 17 工具（read / write / net / ps / exec / run_script / meta / sysinfo + limited_writer）
+│   ├── tools/             # 17 工具（read / write / net / ps / exec / run_script / meta / sysinfo + limited_writer + runneresult）
 │   ├── cfg/               # INI 解析
 │   ├── logx/              # 日志
 │   └── test/              # 集成测试（e2e + smoke_bin）
 └── dist/                  # 产物（部分入仓）
     ├── smith.exe            # Phase 1 主产物
     ├── smith64.exe
-    └── spike{386,64}/     # 9 个 spike exe / 架构（PE 测试用；launcher 不构建，不在此列）
+    └── spike{386,64}/     # 9 个 spike exe / 架构 + app.hta（PE 测试用；launcher 不构建，不在此列）
 ```
 
 ---
