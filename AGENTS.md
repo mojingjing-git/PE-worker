@@ -7,11 +7,13 @@
 
 ## 项目一句话
 
-**PE-agent**（代号 `smith` / 铁匠）—— 一个**单 exe、纯 Go、32 位为主**的 Windows PE 应急助手。GUI 三区 + 内置 14 工具 + 多 LLM provider（Anthropic / OpenAI / DeepSeek），跑在精简的 Win7/Win10/Win11 PE 镜像里，不依赖系统根证书库。
+**PE-agent**（代号 `smith` / 铁匠）—— 一个**单 exe、纯 Go、32 位为主**的 Windows PE 应急助手。GUI 三区 + 内置 17 工具 + 多 LLM provider（Anthropic / OpenAI / DeepSeek），跑在精简的 Win7/Win10/Win11 PE 镜像里，不依赖系统根证书库。
 
-主要交付：`dist/smith.exe`（386）+ `dist/smith64.exe`（amd64），各约 5~6 MB。
+主要交付：`dist/smith.exe`（386）+ `dist/smith64.exe`（amd64），各约 5.5~6 MB。
 
-> **能力现状（2026-09-28 实测）**：14 工具已注册并可跑；**Job Object 杀进程树代码就绪但尚未接入生产路径**（docs/11 §S1-2），Esc 中止目前只杀直接子进程；`screenshot` 等 Phase 4 视觉工具、`sysinfo/diskinfo/netinfo/kill` 均未实现。详见 README 特性表。
+> **能力现状（2026-09-29 实测核对）**：**17 个工具已注册**（14 旧 + `diskinfo` / `sysinfo` / `kill`），其中 **16 个可跑，`kill` 已注册但未接入**（`Run` 无条件返回 `errKillNotWired`）。
+> **Job Object 杀树已接入 `exec`**（`tools/exec.go` → `win.StartJobCmd`，commit `40cfa2e`），Esc 中止能杀整棵树 —— 但 **Win7 无嵌套 job 时会降级到只杀直接子进程**，且 **`run_script` 仍走 `os/exec` 未接线**。
+> 启动失败弹 `MessageBoxW`（`--console` 已删除）。`screenshot` 等 Phase 4 视觉工具、`netinfo` / `download` / `hash` 均未实现。详见 README 特性表。
 
 ---
 
@@ -20,12 +22,13 @@
 | 顺序 | 路径 | 用途 |
 |---|---|---|
 | 1 | [`PLAN.md`](./PLAN.md) | 设计源头：决策、风险、字段表、阶段计划 |
-| 2 | [`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md) | **当前待办的权威来源**：S0~S8 八批整改的定义 + 实施记录 |
-| 3 | `docs/01-05,07-10` | 各专项设计（06 编号空缺） |
-| 4 | `spike/` | 技术预研产物（**只读，9 个独立程序**，可读不可 import） |
-| 5 | `src/` | **本项目唯一可改的代码区** |
+| 2 | [`docs/11-审计整改计划.md`](./docs/11-审计整改计划.md) | **整改批次 S0~S8 的定义 + 实施记录** |
+| 3 | [`docs/12-收尾与功能补齐计划.md`](./docs/12-收尾与功能补齐计划.md) | **收尾批次 T0~T5 的定义 + 实施记录**（T0–T4 已落地） |
+| 4 | `docs/01-05,07-10` | 各专项设计（06 编号空缺） |
+| 5 | `spike/` | 技术预研产物（**只读，9 个独立程序**，可读不可 import） |
+| 6 | `src/` | **本项目唯一可改的代码区** |
 
-**改代码前先查 PLAN.md §0.9**（v1 第四轮 + v2 复审合并的 9 条项目硬规则）。`src/win/` 是最容易踩雷的（Win32 ABI + 386 结构体对齐）。
+**改代码前先查 PLAN.md §0.9**（v1 第四轮 + v2 复审合并的 9 条项目硬规则）+ 本文 §3（Phase 1 之后补的 B2/V1/S1/C1/J1）。`src/win/` 是最容易踩雷的（Win32 ABI + 386 结构体对齐）。
 
 ---
 
@@ -61,12 +64,21 @@ import "peagent/win"            // 错误：会找不到
 | **L1** | 所有 API 返 `(T, error)`；不返裸 T（除 `void` 等价物） | 全包 |
 | **L4** | 多步测试的 VERDICT 必须把**每一步**都纳入判据 | `src/agent/verdict.go` |
 | **L5** | 不吞错：err 一律透传到底层 caller；可加 `fmt.Errorf("ctx: %w", err)` 链 | 全包 |
-| **B2** | `runtime.LockOSThread()` 必须是线程入口函数**第一行**（含 keydialog 的子消息循环） | 全 `win/` |
+| **B2** | `runtime.LockOSThread()` 必须是线程入口函数**第一行**（含 keydialog 的子消息循环） | 全 `win/`。**两处**：`win.Run()`（`gui.go`，主消息循环）+ `win.PromptAPIKey()`（`keydialog.go`，首次运行密钥对话框）。后者跑在 `win.Run()` **之前**（`main.go` boot 第 [3.5] 步）且自带一个 `CreateWindowExW` + `GetMessage` 子循环，**它是本进程的第一个消息循环** —— 漏了就锁错线程，窗口冻结 |
 | **V1** | **`win/` 的 `go vet` 必须用 `-unsafeptr=false`**，否则 Win32 互操作必需的 `uintptr` ↔ `unsafe.Pointer` 互转会刷屏告警 | `build.cmd` 收尾门禁 |
 | **S1** | **含 64 位成员的手写 Win32 结构体有 386 对齐风险** → 用**手工构造字节缓冲 + 显式偏移**，不靠 `unsafe.Sizeof` 猜 | `src/win/job.go` `buildJobExtLimitInfo`（386=112 / amd64=144，`LimitFlags` 恒在偏移 16）。**这条铁律的来源：386 上写 108 字节时 `SetInformationJobObject` 返 `ERROR_BAD_LENGTH` 但不抛错，`KILL_ON_JOB_CLOSE` 静默失效** |
 | **C1** | **Win32 常量必须对照 SDK 头文件 + 实测验证**，禁止凭记忆写 | `src/win/consts_test.go`（68 条断言 + 覆盖度自检 `expectedCount = 68`，新增常量漏加断言直接红）。**真实踩坑：`WM_TIMER` 曾写成 `0x0118`（那是 `WM_SWITCHWINDOW`）** |
+| **J1** | **Job Object 装配顺序不可换**：`CreateProcess(SUSPENDED)` → `CreateJobObject` → `SetKillOnJobClose` → `AssignProcessToJobObject` → `ResumeThread` | `src/win/jobexec.go`（`StartJobCmd`）。**先 Resume 再 Assign 会留一个窗口期**：子进程已经跑起来了却还没进 job，这段时间里 Stop 杀不掉它，而它可能已经 fork 出孙进程。`ResumeThread` 成功后**必须立刻关 `hThread`**。另：关 `hJob` 会因 `KILL_ON_JOB_CLOSE` **连带杀掉整棵树**，所以"启动中途失败"的路径不能无脑 `defer Close()` |
 
-**改代码前问自己：会不会破坏这 9 条？**（M1 / M2 / L1 / L4 / L5 来自 PLAN §0.9；B2 / V1 / S1 / C1 是 Phase 1 之后踩坑补上的）
+**改代码前问自己：会不会破坏这 10 条？**（M1 / M2 / L1 / L4 / L5 来自 PLAN §0.9；B2 / V1 / S1 / C1 是 Phase 1 之后踩坑补上的；J1 是 T2 接线时补的）
+
+> ⚠️ **C1 门禁的边界（容易误以为"全覆盖"）**：
+> `consts_test.go` 的 `expectedCount` **只覆盖 `win/` 包**。
+> `tools/` 包自己也有 Win32 常量 —— `DRIVE_*`（0–6，对照 `winbase.h`）与
+> `PROCESSOR_ARCHITECTURE_*`（0/5/6/9/12，对照 `winnt.h`）**故意放在
+> `tools/sysinfo.go`**，由 `tools/sysinfo_test.go` 单独断言（含
+> `driveTypeMaxLen` 覆盖度自检），**不在 `win/consts_test.go` 的 68 条里**。
+> 改 `tools/` 里的 Win32 常量要去 `tools/sysinfo_test.go` 找门禁，别在 `win/` 里找。
 
 ### 4. 386 vs amd64
 
@@ -75,8 +87,8 @@ import "peagent/win"            // 错误：会找不到
 - 不带 `-race`（race detector 386 + 无 CGO 不可用）
 - `unsafe.Sizeof(struct{})` 在两架构下**必然不同**（108 vs 112 这种）。**含 64 位成员时按 S1 处理：手工字节缓冲 + 显式偏移**
 - Win32 互操作遵循 spike/* 的**只读探针**（当前 9 个程序）：`spike/job` (Job+进程快照+杀树) / `spike/gui` (LockOSThread+窗口) / `spike/hello` (提交限制自检) / `spike/https` (CA bundle) / `spike/dlls` (DLL 依赖) / `spike/hta` (HTA 前端) / `spike/oem2utf8` (编码转换) / `spike/richedit` (RichEdit 控件) / `spike/screenshot` (抓屏)
-- **新加 Win32 常量必须同时在 `src/win/consts_test.go` 加断言**（有 `expectedCount` 覆盖度自检，漏了会红）
-- `runtime.LockOSThread()` **必须是**线程入口函数第一行（晚于 `CreateWindowExW` 会让消息循环线程 ≠ 建窗线程 → 窗口冻结）
+- **新加 Win32 常量必须同时在 `src/win/consts_test.go` 加断言**（有 `expectedCount` 覆盖度自检，漏了会红）。⚠️ **但这只对 `win/` 包成立** —— `tools/` 包的 Win32 常量门禁在 `tools/sysinfo_test.go`（见 §3 顶部注）
+- `runtime.LockOSThread()` **必须是**线程入口函数第一行（晚于 `CreateWindowExW` 会让消息循环线程 ≠ 建窗线程 → 窗口冻结）。**`win.Run()` 和 `win.PromptAPIKey()` 两处都要**，后者跑在前者之前（B2）
 
 ### 5. 步间审核（当前工作模式）
 
@@ -139,8 +151,9 @@ F:\AI\01_项目\PE-agent\
 ├── build.cmd               # 一键 vet + gofmt + build + PE 校验 + test（默认/clean/test）
 ├── verify-pe.ps1           # PE 头校验（Subsystem / 导入表 / 体积）
 ├── smith.ini.example       # 配置文件模板（字段表见 PLAN §0.6 B6）
-├── docs/                   # 10 篇专项设计（06 编号空缺；11 = 审计整改计划 S0~S8）
-│   └── 11-审计整改计划.md    #   **整改前后对照与实施记录的权威来源**
+├── docs/                   # 12 篇专项设计（06 编号空缺；11/12 为整改计划）
+│   ├── 11-审计整改计划.md    #   S0~S8 的整改前后对照与实施记录
+│   └── 12-收尾与功能补齐计划.md #   T0~T5 的批次定义与实施记录（T0–T4 已落地）
 ├── spike/                  # Phase 0 预研 + 前端探针（只读，9 个独立 Go 程序）
 │   ├── job/                #   Job Object + 进程快照 + 杀树 + 386 字节缓冲
 │   ├── gui/                #   Win32 窗口 + LockOSThread + UTF-16 持引用
@@ -158,15 +171,16 @@ F:\AI\01_项目\PE-agent\
 │   ├── main.go             #   入口：boot 序列（早期日志→cfg→LLM→worker→GUI）
 │   ├── tinker.c            #   C 骨架参考（不编进 exe，docs/03 里引用设计）
 │   ├── win/                #   Win32 互操作（最易踩雷）：api_kernel / api_user_gdi / wstr /
-│   │                       #   gui / keydialog / msgs / job / proc / sysinfo / oem + consts_test
+│   │                       #   gui / keydialog / msgs / job / jobexec / proc / sysinfo / oem /
+│   │                       #   msgbox + consts_test
 │   ├── agent/              #   LLM 客户端 + 适配层 + loop + history + verdict
-│   ├── tools/              #   14 工具注册表 + 业务实现 + limited_writer（输出硬上限）
+│   ├── tools/              #   17 工具注册表 + 业务实现 + limited_writer（输出硬上限）
 │   ├── cfg/                #   INI 解析
 │   ├── logx/               #   日志 + PostMessage 投递
 │   └── test/               #   集成测试（e2e + smoke_bin）
 └── dist/                   # 产物（部分入仓）
-    ├── smith.exe             #   Phase 1 主产物（386，约 5~6 MB）
-    ├── smith64.exe           #   Phase 1 主产物（amd64，约 5~6 MB）
+    ├── smith.exe             #   Phase 1 主产物（386，约 5.5~6 MB）
+    ├── smith64.exe           #   Phase 1 主产物（amd64，约 5.5~6 MB）
     ├── spike386/*.exe      #   9 个 spike 386 产物（拷 U 盘验 PE）
     └── spike64/*.exe       #   9 个 spike amd64 产物
 ```
@@ -180,14 +194,16 @@ F:\AI\01_项目\PE-agent\
 - [ ] 看了 PLAN.md 相关章节
 - [ ] 看了 docs/ 相关专项（尤其 **docs/11** 的对应批次）
 - [ ] 看了对应 spike 程序的对应行
-- [ ] 改动没破坏 **9 条硬规则**（M1/M2/L1/L4/L5/B2/V1/S1/C1，见 §3）
+- [ ] 改动没破坏 **10 条硬规则**（M1/M2/L1/L4/L5/B2/V1/S1/C1/J1，见 §3）
 - [ ] 没引入 1.21+ 的 stdlib API（grep 一下）
 - [ ] 没引入 `GetTickCount64` / `GetVersionExA` / `RegGetValueA`
 - [ ] 没引入 `os/user`（拉 netapi32.dll）
-- [ ] 新增工具：`tools/` + 在 `tools/tools_test.go` 的 `allToolNames` 加名字 + `expectRegisteredTools` 加 1
+- [ ] 新增工具：`tools/` + 在 `tools/tools_test.go` 的 `allToolNames` 加名字 + `meta.go` 的 `expectRegisteredTools` 加 1 + **重命名 `src/test/e2e_test.go` 的 `TestE2E_All17ToolsRegistered`**（共 3 处）
 - [ ] 新增 Win32 proc：`win/api_*.go` 声明 + 386 字节缓冲（如有 struct，按 S1 手工构造）
-- [ ] **新增 Win32 常量：`win/consts_test.go` 加断言**（`expectedCount` 同步 +1，否则门禁红）
+- [ ] **新增 Win32 常量：`win/` 包 → `win/consts_test.go` 加断言**（`expectedCount` 同步 +1，否则门禁红）；**`tools/` 包 → `tools/sysinfo_test.go`**（不在 `win/` 门禁范围内）
 - [ ] 386 + amd64 双 build + test 都过
+- [ ] **`build.cmd` 仍是 CRLF**（LF 会让构建永久挂死，见「已知陷阱」6）
+- [ ] **`git archive HEAD` 干净检出能 `go build ./src/...`**（新增文件漏 add 的头号症状，见「已知陷阱」7）
 
 ---
 
@@ -232,20 +248,25 @@ go test -v -run TestE2E ./src/test/...
 1. **GUI 测试**：WM 命令循环阻塞 → 没法 `go test` 验证 GUI 行为。改 gui.go 后**至少** `386 + amd64 build` + 手动跑 `dist/smith.exe`。
 2. **386 struct 对齐**：`wstrKeep`、`jobExtLimitInfo`、`processEntry32` 等跨架构结构体大小不同；用 `unsafe.Sizeof` 验，不要凭直觉。
 3. **Mock LLM 测试**：用 `httptest.NewServer`（HTTP），不是 HTTPS。生产路径的 TLS 在 `spike/https` 验证，本机 mock 只验 wire 格式。
-4. **spike/* 不可 import**：是独立 main 程序，import 会循环
+4. **spike/* 不可 import**：是独立 main 程序，import 会循环。
+5. **spike 产物不在门禁保护范围内**（2026-09-28 复审实测确认）：
+   - `build.cmd` 只构建 `dist\smith.exe` / `smith64.exe`，**不构建 spike**
+   - `verify-pe.ps1` 也只校验这两个
+   - 实测 9 个 spike exe 的 PE Subsystem **全是 3 (CONSOLE)** —— 这对 spike
+     是**合理的**（它们就是要看 stdout 的控制台诊断程序），与主产品的
+     `Subsystem==2` 断言不是同一套规则，两者不冲突
+   - 后果：**"重建 dist/" 不会更新 spike 产物**，它们会静默漂移
 
-> ⚠️ **spike 产物不在门禁保护范围内**（2026-09-28 复审实测确认）：
->
-> - `build.cmd` 只构建 `dist\smith.exe` / `smith64.exe`，**不构建 spike**
-> - `verify-pe.ps1` 也只校验这两个
-> - 实测 9 个 spike exe 的 PE Subsystem **全是 3 (CONSOLE)** —— 这对 spike
->   是**合理的**（它们就是要看 stdout 的控制台诊断程序），与主产品的
->   `Subsystem==2` 断言不是同一套规则，两者不冲突
-> - 后果：**"重建 dist/" 不会更新 spike 产物**，它们会静默漂移
->
-> 所以：改 spike 源码后必须**手工重建对应 exe** 并自己 commit：
-> `go build -trimpath -ldflags "-s -w" -o dist\spike386\xxx.exe .\spike\xxx`
-> （`GOARCH` 386 / amd64 各一次）。
-5. **中文 path + `git add path/`**：trailing slash 会让 git 报 "fatal: bad config"，去掉。
-6. **PowerShell 不支持 `&&`**：用 `;`。
-7. **PE 真机测试**：需要 Win7/10/11 PE 镜像 + 虚拟机，本机跑不了 → 用 `dist/spike386/*.exe` 拷 U 盘进 PE 验（见 `docs/08-PE测试清单.md`）。
+   所以：改 spike 源码后必须**手工重建对应 exe** 并自己 commit：
+   `go build -trimpath -ldflags "-s -w" -o dist\spike386\xxx.exe .\spike\xxx`
+   （`GOARCH` 386 / amd64 各一次）。
+6. **`build.cmd` 必须是 CRLF**：写成 LF 时 cmd.exe 会吞掉每行前几个字节，在解析器里空转 —— **表现是构建永久挂死**（不报错、不退出）。核对：
+   ```powershell
+   $b=[System.IO.File]::ReadAllBytes('build.cmd'); $crlf=0;$lf=0
+   for($i=0;$i -lt $b.Length;$i++){ if($b[$i] -eq 10){ if($i -gt 0 -and $b[$i-1] -eq 13){$crlf++}else{$lf++} } }
+   "$crlf CRLF / $lf LF-only"   # LF-only 必须是 0
+   ```
+7. **提交时别用 `git add --update`**：它**只更新已跟踪文件，新增文件会静默漏掉**。曾导致 `src/tools/limited_writer.go` 未入库 → `git archive HEAD` 出来 HEAD **不可编译**（`undefined: newCapWriter`）。**工作区绿 ≠ HEAD 绿** —— `build.cmd test` 验的是工作区。新增文件必须显式 `git add <file>`，收尾用 `git archive HEAD` 干净检出复验一次。
+8. **中文 path + `git add path/`**：trailing slash 会让 git 报 "fatal: bad config"，去掉。
+9. **PowerShell 不支持 `&&`**：用 `;`。
+10. **PE 真机测试**：需要 Win7/10/11 PE 镜像 + 虚拟机，本机跑不了 → 用 `dist/spike386/*.exe` 拷 U 盘进 PE 验（见 `docs/08-PE测试清单.md`）。

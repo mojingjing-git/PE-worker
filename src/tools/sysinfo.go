@@ -28,6 +28,7 @@ package tools
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -313,8 +314,38 @@ func (killTool) Risk() RiskLevel { return RiskDangerous }
 // 为什么不先接一个能跑的版本：kill 的全部价值在于 M2 双层 PID 复用防护。
 // 少了它，"杀 1234" 可能杀掉 PID 已被复用的**无辜进程** —— 在 PE 现场
 // 那等于数据事故。宁可诚实报"未接入"，也不要一个看起来能用但会杀错进程的 kill。
-func (killTool) Run(_ *Context, _ string) (Result, error) {
-	return Result{}, errKillNotWired
+func (killTool) Run(_ *Context, args string) (Result, error) {
+	// 【T2 收尾】T3 落地时这里刻意返回"未接入" —— 因为它要复用 M2 的
+	// 双层防护杀树，而 T2 尚未接线。现已可用，接上。
+	s := strings.TrimSpace(args)
+	if s == "" {
+		return Result{}, errors.New("kill: 需要 PID，形如 `kill 1234`")
+	}
+	fields := strings.Fields(s)
+	pid64, err := strconv.ParseUint(fields[0], 10, 32)
+	if err != nil {
+		return Result{}, fmt.Errorf("kill: PID %q 不是合法数字: %w", fields[0], err)
+	}
+	pid := uint32(pid64)
+	if pid == 0 {
+		return Result{}, errors.New("kill: PID 0 无效")
+	}
+
+	// M2 第 (b) 层：非 root 节点用 InheritedFromUniqueProcessId 校验
+	// 父进程，防止 PID 复用导致误杀无关进程。expectName 由快照自己拿，
+	// 所以这里传空 —— M2 第 (a) 层（root 名字不符则整轮中止）由 KillTree 内部
+	// 配合快照时的名字校验完成，见 proc.go。
+	killed, errs := win.KillTreeSelfContained(pid, "")
+	if killed == 0 && len(errs) == 0 {
+		return Result{Text: fmt.Sprintf(
+			"未杀到任何进程：pid=%d 可能已退出，或它不是根进程（若是子进程，"+
+				"请连它的父进程一起 kill）", pid)}, nil
+	}
+	msg := fmt.Sprintf("已终止 pid=%d 的进程树，共 %d 个进程", pid, killed)
+	if len(errs) > 0 {
+		msg += fmt.Sprintf("（%d 项失败：%v）", len(errs), errs)
+	}
+	return Result{Text: msg}, nil
 }
 
 // ── 共用小工具 ────────────────────────────────────────────────────────

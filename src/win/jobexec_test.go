@@ -29,8 +29,8 @@ func drainBoth(t *testing.T, jc *JobCmd) string {
 	t.Helper()
 	done := make(chan string, 1)
 	go func() {
-		so, _ := io.ReadAll(OsPipe(jc.StdoutPipe()))
-		se, _ := io.ReadAll(OsPipe(jc.StderrPipe()))
+		so, _ := io.ReadAll(jc.TakeStdoutPipe())
+		se, _ := io.ReadAll(jc.TakeStderrPipe())
 		done <- string(so) + "\n" + string(se)
 	}()
 	select {
@@ -177,8 +177,8 @@ func TestJobCmd_LargeOutput_NoDeadlock(t *testing.T) {
 	// 注意：这里必须**先并发排空再 Wait**，不能 Wait 完再读
 	done := make(chan int, 1)
 	go func() {
-		n, _ := io.Copy(io.Discard, OsPipe(jc.StdoutPipe()))
-		_, _ = io.Copy(io.Discard, OsPipe(jc.StderrPipe()))
+		n, _ := io.Copy(io.Discard, jc.TakeStdoutPipe())
+		_, _ = io.Copy(io.Discard, jc.TakeStderrPipe())
 		done <- int(n)
 	}()
 

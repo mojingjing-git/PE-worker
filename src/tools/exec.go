@@ -99,11 +99,11 @@ func (execTool) Run(ctx *Context, args string) (Result, error) {
 	drainWG.Add(2)
 	go func() {
 		defer drainWG.Done()
-		_, _ = io.Copy(cw, win.OsPipe(jc.StdoutPipe()))
+		_, _ = io.Copy(cw, jc.TakeStdoutPipe())
 	}()
 	go func() {
 		defer drainWG.Done()
-		_, _ = io.Copy(cw, win.OsPipe(jc.StderrPipe()))
+		_, _ = io.Copy(cw, jc.TakeStderrPipe())
 	}()
 
 	// ctx 取消（Esc/Stop 或超时）→ Kill 整棵树

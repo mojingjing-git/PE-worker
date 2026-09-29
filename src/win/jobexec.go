@@ -582,6 +582,37 @@ func (j *JobCmd) Close() error {
 	return nil
 }
 
+// TakeStdoutPipe / TakeStderrPipe 把管道读端**移交**给调用方。
+//
+// ⚠️ 为什么要"移交"而不是共享：管道句柄只有**一个** Close 归属。
+// 早期版本让调用方用 OsPipe() 拿 *os.File，而 JobCmd.Close() 也关同一个句柄
+// —— 于是 `os.File` 的 GC finalizer 与 Close() **双重关闭**。如果中间那个句柄
+// 号已被系统复用，Close 关掉的就是 runtime 自己的句柄，症状是**间歇性**的
+//
+//	runtime: waitforsingleobject wait_failed; errno=6
+//	fatal error: runtime.semasleep wait_failed
+//
+// （3 次里挂 1 次，取决于 GC 时机 —— 最难查的一类。）
+//
+// 所以移交后立刻把字段置 0，Close() 就不会再碰它。所有权归调用方。
+func (j *JobCmd) TakeStdoutPipe() *os.File {
+	h := j.stdoutRd
+	j.stdoutRd = 0
+	if h == 0 {
+		return nil
+	}
+	return os.NewFile(uintptr(h), "jobcmd-stdout")
+}
+
+func (j *JobCmd) TakeStderrPipe() *os.File {
+	h := j.stderrRd
+	j.stderrRd = 0
+	if h == 0 {
+		return nil
+	}
+	return os.NewFile(uintptr(h), "jobcmd-stderr")
+}
+
 // OsPipe 把 Win32 管道读端转成 *os.File，供调用方 io.Copy 读到 EOF。
 //
 // ⚠️ 调用方**必须**并发读 stdout 与 stderr 两个管道，直到 EOF。

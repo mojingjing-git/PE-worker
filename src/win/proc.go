@@ -296,6 +296,14 @@ func KillTreeSelfContained(root uint32, expectName string) (int, []string) {
 		if roundKilled == 0 {
 			break
 		}
+		// 给内核一点时间回收 pid，让下一轮的快照能看到真实的残留。
+		//
+		// ⚠️ 缺这一步的后果不是"多跑一轮"而是**多轮设计被架空**：
+		// TerminateProcess 之后内核尚未回收 PID，下一轮快照看到的还是同一批
+		// "正在终止"的进程 → 重复 kill → roundKilled>0 → 三轮预算被同一批进程
+		// 吃光，本该抓的"第一轮快照之后才派生的子孙"永远没机会被抓到。
+		// spike/job/main.go:407-409 早就有这个 sleep。
+		pSleep.Call(300)
 	}
 	return killed, errs
 }

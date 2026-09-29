@@ -109,6 +109,14 @@ func TestSizeProcessEntry32_PlatformDoc(t *testing.T) {
 	// 386 上应是 556 (MEMORY §1 已声明)
 	// amd64 上：12 字段 4+8 对齐 + ExeFile[260]uint16 (520) = 实际可能 592 或不同
 	// 这里**不**断言 amd64 尺寸，让 sp -diag 在真 PE 上看。
+	// 【T4-9】原来这个函数**只有 t.Logf，零断言** —— 名字带 Size、注释写着
+	// "386 上应是 556"，却什么都没验。而 processEntry32 正是 M2 双层防护
+	// 依赖的结构体，§S1 铁律（手写 Win32 结构体含 64 位成员 → 386 对齐风险）
+	// 正是被尺寸错位坑出来的。补真断言。
+	if ptrSize == 4 && sz != 556 {
+		t.Fatalf("processEntry32 在 386 上 sizeof = %d，期望 556 —— "+
+			"M2 的进程快照依赖这个尺寸，错位会让枚举结果全错", sz)
+	}
 }
 
 func TestSizeProcessBasicInformation_PlatformDoc(t *testing.T) {

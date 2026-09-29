@@ -156,7 +156,7 @@ Phase 2 只有"超时、重试、错误透传"。单机抢修时断网 / 429 / 5
 
 | # | 问题 | 处置 |
 |---|---|---|
-| **B9** | `-H windowsgui` 子系统**没有控制台**，`--console` 参数不会自动生效 | 明确要调 `kernel32.AllocConsole()` + 重设 std 句柄；或干脆额外出一个不带 `-H windowsgui` 的调试版 exe |
+| **B9** | `-H windowsgui` 子系统**没有控制台**，`--console` 参数不会自动生效 | 明确要调 `kernel32.AllocConsole()` + 重设 std 句柄；或干脆额外出一个不带 `-H windowsgui` 的调试版 exe。**→ 2026-09-29 superseded（docs/12 §七 Q1）**：`--console` 已**删除**，改用 `MessageBoxW`。理由是 `AttachConsole(ATTACH_PARENT_PROCESS)` 只在父进程有控制台时成功，U 盘双击场景必然失败 |
 | **B10** | `selftest` 是**聊天里才能触发的工具**，GUI 都起不来时根本进不去 | 版本 / 已加载 DLL 清单**必须写进启动早期文件日志**（A6 那条），`selftest` 只作在线补充 |
 | **B11** | `--key` 明文在命令行上，`tasklist /v` 能看到 —— **`docs/04` 自己就警告过这件事** | 优先 `keyfile`，`--key` 降级为"应急且不推荐"并在帮助里写明风险 |
 | **B12** | `assets/cacert.pem` 从哪来、怎么更新，从没写 | 写明来源 `https://curl.se/ca/cacert.pem`，**锁一个版本**并在文件头注明取用日期；更新策略写进 README |
@@ -348,7 +348,8 @@ P0-1~P0-6 的 PE 侧验证。详见 `docs/07` §5、`docs/08`。
 
 ## 2. 目录结构
 
-> **本节 2026-09-28 按 `src/` 实际文件重写。** 上一版列的 5 个文件
+> **本节 2026-09-28 按 `src/` 实际文件重写，2026-09-29 补 T0–T4 落地后的新文件。**
+> 上一版列的 5 个文件
 > （`win/api.go` / `win/dpi.go` / `tools/file.go` / `tools/sys.go` / `tools/vision.go`）
 > **从未存在** —— 见 docs/11 §S8-6。
 > 标 **[规划中，未实现]** 的条目是 Phase 4 / PLAN §3 的目标形态，**代码里没有**。
@@ -386,9 +387,11 @@ PE-agent/
 │  │  ├─ keydialog.go           首次运行密钥输入对话框
 │  │  ├─ msgs.go                Win32 消息 / 窗口样式常量
 │  │  ├─ job.go                 Job Object 封装（**386 用手工字节缓冲 + 显式偏移**）
+│  │  ├─ jobexec.go            **CreateProcess + Job Object 装配 + 管道排空 + 降级链**（T2 落地）
 │  │  ├─ proc.go                进程快照 + M2 双层 PID 复用防护 + 自实现杀树
 │  │  ├─ sysinfo.go             内存/OS/磁盘/主机名等（L1：全部 `(T, error)`）
 │  │  ├─ oem.go                 OEM → UTF-8（exec / run_script / read 调用）
+│  │  ├─ msgbox.go              **MessageBoxW 封装**（T1 落地：PE 里唯一可靠的可读通道）
 │  │  └─ consts_test.go         Win32 常量门禁（68 条，对照 SDK 头文件）
 │  ├─ agent/
 │  │  ├─ agent.go               公共类型
@@ -399,39 +402,45 @@ PE-agent/
 │  │  ├─ history.go             会话历史滑窗 + 截断 + 图片裁剪 **[图片裁剪：Phase 4]**
 │  │  ├─ prompt.go              系统提示词（目标 <1000 token）
 │  │  └─ verdict.go             L4：多步结果的 VERDICT 汇总
-│  ├─ tools/                    **14 个已注册工具**
+│  ├─ tools/                    **17 个已注册工具**（其中 `kill` 已注册未接入）
 │  │  ├─ registry.go            工具接口 + 注册表 + 分发
 │  │  ├─ context.go             Context（含 Ctx 取消信号）+ 超时组合
 │  │  ├─ read.go                ls / cat / grep / find
 │  │  ├─ write.go               write / edit / append
 │  │  ├─ net.go                 http_get / https_get（自带 CA bundle）
 │  │  ├─ ps.go                  ps
-│  │  ├─ exec.go                exec
-│  │  ├─ run_script.go          run_script
+│  │  ├─ exec.go                exec（**T2 起走 `win.StartJobCmd`，Stop 杀整棵树**）
+│  │  ├─ run_script.go          run_script（**仍走 `os/exec`，只杀直接子进程**）
 │  │  ├─ meta.go                help / selftest
+│  │  ├─ sysinfo.go             diskinfo / sysinfo / **kill（已注册未接入）**（T3 落地）
 │  │  ├─ limited_writer.go      工具输出硬上限 512KB + 截断标记
-│  │  └─ sys.go / vision.go     **[规划中，未实现]** sysinfo/diskinfo/netinfo/kill、screenshot
+│  │  └─ vision.go              **[规划中，未实现]** screenshot + 图片分支 + attach_image
 │  ├─ cfg/ini.go                INI 解析（自己写）+ Save 合并模式
 │  ├─ logx/log.go               日志 → PostMessage 投递到 UI 线程
-│  └─ test/                     e2e（loop+tools+cfg 串通）+ smoke_bin（跑 dist/smith.exe）
+│  └─ test/                     e2e（loop+tools+cfg 串通，含 17 工具注册断言）+ smoke_bin（跑 dist/smith.exe）
 └─ dist/                        构建产物（smith.exe / smith64.exe / spike{386,64}）
 ```
 
 ### 与 §3 阶段计划的对应（哪些还没做）
 
+> **本表 2026-09-29 按 T0–T4 落地后重新核对。**
+
 | §3 规划 | 代码现状 |
 |---|---|
-| Phase 1 `exec` | ✅ 已实现（**但 Job 杀树未接入**，docs/11 §S1-2） |
+| Phase 1 `exec` | ✅ 已实现，**且 Job 杀树已接入**（`win/jobexec.go` + `tools/exec.go`，docs/12 T2 / commit `40cfa2e`）。**限定**：Win7 无嵌套 job 时降级链可能退到只杀直接子进程；**`run_script` 未接线** |
 | Phase 2 agent loop / provider 适配 | ✅ 已实现（3 provider） |
 | Phase 3 P3-1 文件类 `hash` | ⛔ **未实现**（无 hash 工具） |
-| Phase 3 P3-2 系统类 `sysinfo`/`diskinfo`/`netinfo`/`kill` | ⛔ **未实现**（`win/sysinfo.go` 有底层 API，但无 tools 层工具） |
+| Phase 3 P3-2 系统类 `sysinfo` / `diskinfo` | ✅ **已实现并可用**（docs/12 T3 / commit `c5d82da`，`tools/sysinfo.go`） |
+| Phase 3 P3-2 系统类 `kill` | ⚠️ **已注册但未接入** —— `tools/sysinfo.go` 的 `killTool.Run` 无条件返回 `errKillNotWired`（等 `win.KillTreeSelfContained` 签名改造）。当前请用 `exec` 工具或 `taskkill /T /F /PID` |
+| Phase 3 P3-2 系统类 `netinfo` | ⛔ **未实现**（可用 `exec ipconfig` 顶替） |
 | Phase 3 P3-3 网络类 `download` | ⚠️ 由 `http_get` / `https_get` 承担，**没有名为 `download` 的工具** |
 | Phase 4 `screenshot` + `read` 图片分支 + `attach_image` | ⛔ **未实现**（`tools/vision.go` 不存在，`Result.AttachImage` 字段已留但无写入方） |
 
 > `src/tinker.c` **保留**，但角色变了：不再是待实现的骨架，而是**Win32 实现的参考** —— `exec` 的管道捕获、Job Object 杀进程树、日志裁剪那几段可以照着翻成 Go。
 >
-> ⚠️ **注意**：`tinker.c` 里的 Job Object 杀树**尚未翻译成 Go 生产代码**。`win/job.go` 的能力来自 `spike/job`，
-> `tools/exec.go` 目前用的是 `os/exec.CommandContext`，**只杀直接子进程**。
+> ⚠️ **注意（2026-09-29 更新）**：`tinker.c` 里的 Job Object 杀树**已经翻译成 Go 生产代码**了 ——
+> `win/jobexec.go`（docs/12 T2 / commit `40cfa2e`），`tools/exec.go` 已改走 `win.StartJobCmd`。
+> **但 `tools/run_script.go` 仍在用 `os/exec.CommandContext`，只杀直接子进程。**
 
 ---
 
@@ -466,18 +475,20 @@ PE-agent/
 
 ### Phase 1 — 骨架打通（目标：`exec` 能跑）
 
-| 任务 | 要点 |
-|---|---|
-| 项目骨架 | `go.mod`（`go 1.20`）、目录、`build.cmd` 带 `go version` 断言 |
-| **启动早期日志**（审核 A6） | **GUI 初始化之前**先开文件日志（exe 同目录，失败退 `X:\tmp`）；加 `--console` 参数创建控制台窗口 |
-| Win32 绑定层 | `syscall.NewLazyDLL` 封 user32 / kernel32 / gdi32；**`NewCallback` 只调一次** |
-| 三区 GUI | 日志区（只读多行 EDIT）+ 输入区 + 状态栏，见 `docs/03` |
-| 线程模型 | UI 线程 `runtime.LockOSThread()`；agent 跑在 goroutine；日志用 `PostMessage` 投递，字符串所有权归 UI 线程 |
-| 中止机制 | Esc / 停止按钮 → 取消标志 + **Job Object 杀整棵进程树** |
-| **Job Object 三层兜底**（审核 A3） | `IsProcessInJob` 检测 → 子进程带 `CREATE_BREAKAWAY_FROM_JOB` → 降级 `taskkill /T /F /PID`。**Win7 不支持嵌套 job，不处理就静默失效** |
-| `exec` 工具 | 匿名管道捕获 stdout+stderr、超时、NUL 重定向 stdin。**按约 150 行精细移植估工**（不是"翻一下"）：`os/exec` 拿不到 job 所需的一切，要 `SysProcAttr.CreationFlags` + `OpenProcess(pid)` 或直接调 `CreateProcess` |
-| **exec 输出编码**（审核 A2） | **必过函数**：捕获的字节走 `MultiByteToWideChar(CP_OEMCP)` → `WideCharToMultiByte(CP_UTF8)`。不做的话中文 PE 下输出全乱码 |
-| 日志上限 | 60000 字符，超了砍前半截 |
+> ✅ **已完成（2026-09-11）**，Job 杀树部分于 2026-09-29 补齐（docs/12 T2）。
+
+| 任务 | 要点 | 状态 |
+|---|---|---|
+| 项目骨架 | `go.mod`（`go 1.20`）、目录、`build.cmd` 带 `go version` 断言 | ✅ |
+| **启动早期日志**（审核 A6） | **GUI 初始化之前**先开文件日志（exe 同目录，失败退 `X:\tmp`）。~~加 `--console` 参数创建控制台窗口~~ → **2026-09-29 改为**：所有非零退出码收口到 `fatalExit`，弹 `MessageBoxW`（`--console` 已删除，见 docs/12 T1-4 / §七 Q1） | ✅ |
+| Win32 绑定层 | `syscall.NewLazyDLL` 封 user32 / kernel32 / gdi32；**`NewCallback` 只调一次** | ✅ |
+| 三区 GUI | 日志区（只读多行 EDIT）+ 输入区 + 状态栏，见 `docs/03` | ✅ |
+| 线程模型 | UI 线程 `runtime.LockOSThread()`；agent 跑在 goroutine；日志用 `PostMessage` 投递，字符串所有权归 UI 线程 | ✅（B2 扩到 `PromptAPIKey`） |
+| 中止机制 | Esc / 停止按钮 → 取消标志 + **Job Object 杀整棵进程树** | ⚠️ **仅 `exec`**。`run_script` 仍只杀直接子进程 |
+| **Job Object 三层兜底**（审核 A3） | `IsProcessInJob` 检测 → 子进程带 `CREATE_BREAKAWAY_FROM_JOB` → 降级 `taskkill /T /F /PID`。**Win7 不支持嵌套 job，不处理就静默失效** | ⚠️ **实际实现是三级降级链**（`TerminateJobObject` → `KillTreeSelfContained` → `TerminateProcess`），不是 `taskkill`。**Win7 上 Assign 到底会不会失败至今无真机实测**（docs/07 P0-5 只在 Win11 上验过） |
+| `exec` 工具 | 匿名管道捕获 stdout+stderr、超时、NUL 重定向 stdin | ✅ 走 `win.StartJobCmd`（含管道排空 goroutine，防 64KB 缓冲写满死锁） |
+| **exec 输出编码**（审核 A2） | **必过函数**：捕获的字节走 `MultiByteToWideChar(CP_OEMCP)` → `WideCharToMultiByte(CP_UTF8)`。不做的话中文 PE 下输出全乱码 | ✅ `win/oem.go`（commit `4f7ced6`） |
+| 日志上限 | 60000 字符，超了砍前半截 | ✅ |
 
 **验收**：在 Win7 PE 里启动，输入 `ver`，窗口里看到输出，按 Esc 能中止一条 `ping -t`。
 
@@ -504,19 +515,22 @@ PE-agent/
 
 ### Phase 3 — 补齐 14 个工具
 
+> **2026-09-29 更新**：实际注册 **17 个**（原 14 + `diskinfo` / `sysinfo` / `kill`）。
+> 本表是**原始规划**，保留原样以便对照；实际落地状态见 §2「与 §3 阶段计划的对应」。
+
 分三批，每批加完就在 PE 里验一次。
 
-| 批次 | 工具 | 依赖 |
-|---|---|---|
-| **P3-1 文件类** | `read` / `write` / `edit` / `ls` / `find` / `hash` | `os` + 自写 MD5/SHA256 或 `crypto/*`（标准库） |
-| **P3-2 系统类** | `sysinfo` / `diskinfo` / `netinfo` / `ps` / `kill` / `run_script` | `syscall` 调 `kernel32` / `iphlpapi` |
-| **P3-3 网络类** | `download` | `net/http`（TLS 白送） |
+| 批次 | 工具 | 依赖 | 状态（2026-09-29 核对） |
+|---|---|---|---|
+| **P3-1 文件类** | `read` / `write` / `edit` / `ls` / `find` / `hash` | `os` + 自写 MD5/SHA256 或 `crypto/*`（标准库） | 前 5 个 ✅（拆成 ls/cat/grep/find + write/edit/append）；**`hash` ⛔ 未实现** |
+| **P3-2 系统类** | `sysinfo` / `diskinfo` / `netinfo` / `ps` / `kill` / `run_script` | `syscall` 调 `kernel32` / `iphlpapi` | `ps` ✅ / `run_script` ✅ / `diskinfo` ✅ / `sysinfo` ✅（docs/12 T3）；**`kill` ⚠️ 已注册未接入**；**`netinfo` ⛔ 未实现**（用 `exec ipconfig` 顶替） |
+| **P3-3 网络类** | `download` | `net/http`（TLS 白送） | ⚠️ **由 `http_get` / `https_get` 承担**，没有名为 `download` 的工具 |
 
 **两个必须注意的点：**
-1. **不要用 `os/user`** —— 它会拉进 `netapi32.dll` / `userenv.dll`，精简 PE 可能没有。改用 `GetUserNameW`（advapi32）。
-2. `sysinfo` 的 OS 版本要调 `ntdll!RtlGetVersion`，**不要用 `GetVersionEx`**（Win8.1+ 无 manifest 会返回假版本号）。
+1. **不要用 `os/user`** —— 它会拉进 `netapi32.dll` / `userenv.dll`，精简 PE 可能没有。改用 `GetUserNameW`（advapi32）。✅ 已遵守
+2. `sysinfo` 的 OS 版本要调 `ntdll!RtlGetVersion`，**不要用 `GetVersionEx`**（Win8.1+ 无 manifest 会返回假版本号）。✅ 已遵守
 
-**验收**：14 个工具在 PE 里逐个手测通过。
+**验收**：~~14 个工具在 PE 里逐个手测通过~~ → 实际是 **17 个注册（16 可跑）**，且**至今没有一个在真 PE 里手测过**（见 docs/12 §八「仍需真机 PE 验证」）。
 
 ---
 
@@ -568,7 +582,7 @@ PE-agent/
 | 10 | **Job Object 建不起来**（审核 A3） | 中 | 🔴 致命 | 三层兜底：`IsProcessInJob` 检测 → `CREATE_BREAKAWAY_FROM_JOB` → `taskkill /T /F` |
 | 11 | **exec 中文输出乱码**（审核 A2） | 高 | 🟠 高 | 统一走 `CP_OEMCP → UTF-8` 转换函数 |
 | 12 | 密钥没法注入（PE 无记事本）（审核 A5） | 高 | 🟠 高 | GUI 首次运行输入框 + `--key` 参数 + 预置 INI 三种方式 |
-| 13 | GUI 起不来时无从排查（审核 A6） | 中 | 🟠 高 | GUI 初始化前先开文件日志 + `--console` 参数 |
+| 13 | GUI 起不来时无从排查（审核 A6） | 中 | 🟠 高 | ✅ 已缓解：GUI 初始化前先开文件日志 + **启动失败弹 MessageBoxW**（`fatalExit` 收口所有非零退出码，弹窗内附日志绝对路径）。~~`--console` 参数~~ 已删除 |
 | 14 | provider 差异导致解析失败（审核 A11） | 高 | 🟡 中 | `llm.go` 做 provider 适配层，不假设"OpenAI 兼容"统一 |
 
 **已消除的风险（不用再管）：**
@@ -639,7 +653,7 @@ echo [OK] dist\smith.exe (386) + dist\smith64.exe (amd64)
 | **M0** | `docs/07-兼容性验证报告.md` + `spike/` | **PE 里看到窗口** ← 最关键的一关 |
 | **M1** | 可运行的 GUI + `exec` | PE 里执行 `ver` 有输出，Esc 能中止 |
 | **M2** | Agent loop | PE 里对话 + 自动调工具 |
-| **M3** | 14 个工具 | 工具全部在 PE 里手测通过 |
+| **M3** | ~~14 个~~ **17 个工具**（16 可跑 + `kill` 已注册未接入） | ⏳ **工具全部在 PE 里手测通过 —— 尚未做**。本机 `go test` 全过不等于 PE 现场可用（见 docs/12 §八「仍需真机 PE 验证」） |
 | **M4** | 视觉 | 模型能读出截图里的错误码 |
 | **M5** | 分发版 | U 盘插上就能用 |
 

@@ -10,7 +10,6 @@
 package tools
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -114,25 +113,31 @@ func TestSysinfo_ContainsOSVersion(t *testing.T) {
 
 // ---------- kill ----------
 
-// kill 已注册但未接入：必须返**明确的**错误，不是 panic、不是静默成功。
-// T2 接线后此测试应改写。
-func TestKill_NotYetWired(t *testing.T) {
-	t0, ok := Get("kill")
-	if !ok {
-		t.Fatal("kill 未注册")
+// TestKill_RealBehavior 验证 kill 工具的**真实行为**（T2 收尾后已接线）。
+//
+// 原来这里是 TestKill_NotYetWired，锁的是"已注册未接入"的中间态；
+// T2 把 KillTreeSelfContained 接上后它就必然红。改成验真正该验的东西：
+// 参数校验走 L1 返 error、非法 PID 不崩、不误杀。
+func TestKill_RealBehavior(t *testing.T) {
+	// 空参数
+	if _, err := RunByName(&Context{}, "kill", ""); err == nil {
+		t.Error("kill 空参数应返 error")
 	}
-	r, err := t0.Run(nil, "1234")
-	if err == nil {
-		t.Fatalf("kill 未接入时必须返 err, 实际成功: %+v", r)
+	// 非数字
+	if _, err := RunByName(&Context{}, "kill", "not-a-pid"); err == nil {
+		t.Error("kill 非数字 PID 应返 error")
 	}
-	if !errors.Is(err, errKillNotWired) {
-		t.Errorf("kill 错误应为 errKillNotWired, 实际: %v", err)
+	// PID 0 无效
+	if _, err := RunByName(&Context{}, "kill", "0"); err == nil {
+		t.Error("kill PID 0 应返 error")
 	}
-	if !strings.Contains(err.Error(), "待") {
-		t.Errorf("kill 错误信息应说明未接入, 实际: %v", err)
-	}
-	if r.Text != "" {
-		t.Errorf("kill 未接入时不应有输出文本, 实际: %q", r.Text)
+	// 一个几乎必然不存在的 PID：不应 panic，
+	// 应返回如实描述（进程可能已退出，不是错误）
+	res, err := RunByName(&Context{}, "kill", "4294967294")
+	if err != nil {
+		t.Logf("不存在的 PID 返回 error，属可接受: %v", err)
+	} else if res.Text == "" {
+		t.Error("kill 应返回非空的说明性文本")
 	}
 }
 
