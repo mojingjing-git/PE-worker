@@ -105,7 +105,6 @@ func Run() int {
 	defer Hold(className)
 
 	cursor, _, _ := pLoadCursorW.Call(0, uintptr(32512)) // IDC_ARROW = 32512
-	stockFont, _, _ := pGetStockObject.Call(DEFAULT_GUI_FONT)
 
 	cls := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
@@ -203,7 +202,6 @@ func Run() int {
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
 	}
-	_ = stockFont // 占位, P1-11 再用
 	return 0
 }
 

@@ -187,8 +187,11 @@ type StartJobSpec struct {
 
 // StartJobCmd 启动一个绑进 Job Object 的子进程。
 //
-// ⚠️ 调用方必须在调用后**及时 CloseWriteEnds**（见方法），否则父进程自己
-// 持有的写端不关，子进程 stdout 写满管道后阻塞、永不退出 → Wait 死锁。
+// ⚠️ 写端**不需要调用方管**（P3-28 订正）：本函数第 4 步在 CreateProcess
+// 成功后就自己关了 soWr / seWr，见下方"父进程立刻关掉两个写端"。
+// 调用方的义务只有一条：用 `TakeStdoutPipe` / `TakeStderrPipe` 取走读端
+// 并**读到 EOF**，否则子进程 stdout/stderr 写满 64KB 管道后阻塞、永不退出，
+// 表现为 Wait 死锁。
 func StartJobCmd(spec StartJobSpec) (*JobCmd, error) {
 	if len(spec.Args) == 0 {
 		return nil, errors.New("StartJobCmd: Args 不能为空")

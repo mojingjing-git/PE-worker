@@ -238,7 +238,13 @@ func decodeText(raw []byte) string {
 }
 
 // limitOutput 截断超长输出，尾部标明省略字节数 —— 让模型知道还有内容没看，
-// 而不是假装看全了（docs/11 S3 同款策略；exec 侧那份常量在 exec.go，不在此处定义以免重名）。
+// 而不是假装看全了（docs/11 S3 同款策略）。
+//
+// ⚠️ 这里原本写着"exec 侧那份常量在 exec.go，不在此处定义以免重名"——
+// **该说法已失效**（P3-28 核实全项目无此说法的依据）：那份常量
+// `maxToolOutputBytes` 在 **limited_writer.go**，不在 exec.go；而下面这个
+// `maxBytes`（512*1024，与 maxToolOutputBytes 同值）是**重复定义**。
+// 合并二者属 docs/13 Task D3 的活，刻意不在此动，以免与 D3 打架。
 func limitOutput(s string) string {
 	const maxBytes = 512 * 1024
 	if len(s) <= maxBytes {
