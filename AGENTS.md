@@ -79,6 +79,16 @@ import "peagent/win"            // 错误：会找不到
 > `tools/sysinfo.go`**，由 `tools/sysinfo_test.go` 单独断言（含
 > `driveTypeMaxLen` 覆盖度自检），**不在 `win/consts_test.go` 的 68 条里**。
 > 改 `tools/` 里的 Win32 常量要去 `tools/sysinfo_test.go` 找门禁，别在 `win/` 里找。
+>
+> ⚠️ **C1 门禁的第三块边界**：`spike/` 包的 Win32 常量**不受任何门禁保护**
+> （`consts_test.go` 的 AST 扫描只扫 `src/win/`，`build.cmd` 的禁用 grep 也只覆盖 `src/`）。
+> `spike/` 是 Phase 0 的**只读预研**，定位是"拷 U 盘进 PE 做一次性验证"，
+> 不是持续维护的产品代码 —— 代价是**错常量会长期潜伏**（`docs/13` A4 抓到过
+> `spike/richedit` 的 `emExLimitText=0x0437` 其实是 `EM_EXSETSEL`、
+> `emSetLimitText=0x00D5` 其实是 `EM_GETLIMITTEXT`（在**读**上限不是**设**上限），
+> 以及 `spike/hello` 的 `archARM=12` 其实是 `PROCESSOR_ARCHITECTURE_ARM64` 的值）。
+> **改 `spike/` 里的 Win32 常量时必须对照 SDK 头文件**，且改完要手工重建对应
+> `dist/spike{386,64}/*.exe`（`build.cmd` 不构建 spike，见「已知陷阱 5」）。
 
 ### 4. 386 vs amd64
 

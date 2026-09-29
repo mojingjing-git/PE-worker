@@ -299,11 +299,15 @@ func main() {
 	pGetNativeSystemInfo.Call(uintptr(unsafe.Pointer(&si)))
 	const (
 		archIntel = 0
-		archARM   = 12
+		archARM   = 5
 		archIA64  = 6
 		archAMD64 = 9
+		archARM64 = 12
 	)
-	archName := map[uint16]string{archIntel: "x86", archARM: "ARM", archIA64: "IA64", archAMD64: "x64"}[si.ProcessorArchitecture]
+	archName := map[uint16]string{
+		archIntel: "x86", archARM: "ARM", archIA64: "IA64",
+		archAMD64: "x64", archARM64: "ARM64",
+	}[si.ProcessorArchitecture]
 	fmt.Printf("native arch          : %s (%d)  procs=%d  pagesize=%d\n",
 		archName, si.ProcessorArchitecture, si.NumberOfProcessors, si.PageSize)
 	fmt.Printf("VA range             : 0x%08X .. 0x%08X\n",

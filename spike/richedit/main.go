@@ -55,8 +55,8 @@ const (
 	// EM_*
 	emSetSel        = 0x00B1
 	emReplaceSel    = 0x00C2
-	emExLimitText   = 0x0437
-	emSetLimitText  = 0x00D5 // EM_SETLIMITTEXT：EDIT/RichEdit 都认，wParam=limit
+	emExLimitText   = 0x0435 // EM_EXLIMITTEXT (WM_USER+53, richedit.h:100)
+	emSetLimitText  = 0x00C5 // EM_LIMITTEXT (winuser.h:11270)，EM_SETLIMITTEXT 是其别名
 	emSetCharFormat = 0x0444
 	scfSelection    = 0x0001
 	cfmSize         = 0x80000000
@@ -167,7 +167,7 @@ func main() {
 	runtime.KeepAlive(txtPtr)
 	fmt.Println("STEP: replaceSel ok")
 
-	fmt.Println("STEP: setLimitText (EM_SETLIMITTEXT 0xD5)")
+	fmt.Println("STEP: setLimitText (EM_LIMITTEXT 0xC5)")
 	pSend(emSetLimitText, 1<<20, 0)
 	fmt.Println("STEP: setLimitText ok")
 
