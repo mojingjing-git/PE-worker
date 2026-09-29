@@ -405,7 +405,7 @@ PE-agent/
 │  │  ├─ sysinfo.go             内存/OS/磁盘/主机名等（L1：全部 `(T, error)`）
 │  │  ├─ oem.go                 OEM → UTF-8（exec / run_script / read 调用）
 │  │  ├─ msgbox.go              **MessageBoxW 封装**（T1 落地：PE 里唯一可靠的可读通道）
-│  │  ├─ consts_test.go         C1 门禁的断言部分（68 条，对照 SDK 头文件）
+│  │  ├─ consts_test.go         C1 门禁的断言部分（对照 SDK 头文件）
 │  │  └─ consts_scan_test.go    C1 门禁的 AST 真 diff（与包内 const 声明比对，docs/13 B1）
 │  ├─ agent/
 │  │  ├─ agent.go               公共类型

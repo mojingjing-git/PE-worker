@@ -322,7 +322,7 @@ GOARCH=386 go test -v -run TestE2E ./src/test/...
 | `logx` | PostMessage 投递 + fallback sink | `log.go` |
 | `test` | e2e（loop+tools+cfg 串通，含 17 工具注册断言与 ctx 取消贯通）+ smoke_bin（跑 `dist/smith.exe` + 产物新鲜度） | `e2e_test.go` `smoke_bin_test.go` |
 | `tools` | 17 工具 smoke + 输出硬上限 + 注入防护 + 通配匹配 + edit 空 old 防护 + `DRIVE_*` / `PROCESSOR_ARCHITECTURE_*` 常量断言 | `read.go` `write.go` `net.go` `ps.go` `exec.go` `run_script.go` `meta.go` `sysinfo.go` `limited_writer.go` `sysinfo_test.go` |
-| `win` | UTF-16 持引用 + 线程安全 / Job Object 386 字节缓冲契约 / **Job 杀树端到端 + 降级链注入测试** / 进程快照 / OEM→UTF8 / **Win32 常量门禁（68 条）** / GUI 消息 | `wstr.go` `job.go` `jobexec.go` `proc.go` `oem.go` `sysinfo.go` `consts_test.go` `gui.go` `msgbox.go` |
+| `win` | UTF-16 持引用 + 线程安全 / Job Object 386 字节缓冲契约 / **Job 杀树端到端 + 降级链注入测试** / 进程快照 / OEM→UTF8 / **Win32 常量门禁（断言表 × AST 真 diff）** / GUI 消息 | `wstr.go` `job.go` `jobexec.go` `proc.go` `oem.go` `sysinfo.go` `consts_test.go` `gui.go` `msgbox.go` |
 
 > ⚠️ **T4-6 未做**：`appendLog` 只发 `EM_SETSEL`，**没有 `EM_GETSEL`**，所以日志追加
 > 会抢走用户当前选区、`truncateLogIfNeeded` 会在**用户选区**上做 `EM_SETSEL + WM_CLEAR`。

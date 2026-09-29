@@ -76,8 +76,8 @@ var (
 )
 
 // WNDCLASSEXW —— 386=48 / amd64=80
-// 含 uintptr 成员，尺寸随架构变（AGENTS.md §3 的 S1）；本结构体无尺寸断言，
-// 改字段后要 sp -diag 或补断言，别凭注释里的数当真。
+// 含 uintptr 成员，尺寸随架构变（AGENTS.md §3 的 S1）；尺寸由
+// TestWndClassExWSize 双架构钉住，改字段后跑一次 test，别凭注释里的数当真。
 type wndClassExW struct {
 	CbSize        uint32
 	Style         uint32

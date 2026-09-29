@@ -8,7 +8,39 @@ import (
 	"reflect"
 	"syscall"
 	"testing"
+	"unsafe"
 )
+
+// TestWndClassExWSize 钉住 wndClassExW 的 cbSize 尺寸：386=48 / amd64=80。
+//
+// Run() 用 unsafe.Sizeof(wndClassExW{}) 当 CbSize 传给 RegisterClassExW，而这个
+// 结构体含 8 个 uintptr 成员（AGENTS.md §3 的 S1 场景），尺寸随架构变。改字段后
+// cbSize 跟着变，而写错时 RegisterClassExW 只静默返 0，Run() 直接 return 1
+// —— 主窗口根本不出现，无头环境看不见，要到 PE 现场才暴露。参照
+// TestMemoryStatusExSize（P3-24）给两个架构都上真断言，让 gui.go 注释里那行
+// 数字不再单独背书。
+func TestWndClassExWSize(t *testing.T) {
+	sz := unsafe.Sizeof(wndClassExW{})
+	ptr := unsafe.Sizeof(uintptr(0))
+
+	// 期望值来自 Win32 ABI（winuser.h 的 WNDCLASSEXW）：4 个 4 字节字段
+	// + 8 个指针宽字段，386 上指针 4 字节，amd64 上指针 8 字节。
+	var want uintptr
+	switch ptr {
+	case 4:
+		want = 48
+	case 8:
+		want = 80
+	default:
+		t.Fatalf("未知指针宽度 %d 字节，本项目只构建 386 / amd64", ptr)
+	}
+
+	if sz != want {
+		t.Fatalf("unsafe.Sizeof(wndClassExW{}) = %d，%d-bit 上期望 %d —— "+
+			"它是 RegisterClassExW 的 cbSize，尺寸错位会让主窗口注册失败", sz, ptr*8, want)
+	}
+	t.Logf("unsafe.Sizeof(wndClassExW{}) = %d 字节 (指针 %d 字节, %d-bit)", sz, ptr, ptr*8)
+}
 
 func TestFindThinkBlocks(t *testing.T) {
 	// lineBuf 是 []uint16，索引 = UTF-16 单元数（ASCII 1 char = 1 unit）。
